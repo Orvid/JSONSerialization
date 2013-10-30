@@ -22,7 +22,7 @@ abstract class SerializationFormat
 	protected static void ensureSerializable(T)() @safe pure nothrow
 	{
 		static if (isClass!T)
-			static assert(hasAttribute!(T, serializable), "Classes not marked as serializable cannot be serialized!");
+			static assert(hasAttribute!(T, serializable) || is(Dequal!T == Object), "Classes not marked as serializable cannot be serialized!");
 		else
 			static assert(0, "Not yet implemented!");
 	}

@@ -279,6 +279,11 @@ final class JSONSerializationFormat : SerializationFormat
 								curI++;
 								break;
 
+							case '0': .. case '9':
+								curState = State.Number;
+								curI++;
+								break;
+
 							default:
 								// TODO: This shouldn't throw an exception.
 								throw new Exception("Unknown input '" ~ input[curI] ~ "'!");
@@ -302,6 +307,17 @@ final class JSONSerializationFormat : SerializationFormat
 						break;
 					// TODO TODO TODO TODO TODO: Implement.
 					case State.Number:
+						switch (input[curI])
+						{
+							case '0': .. case '9':
+								curI++;
+								break;
+
+							default:
+								current = Token(TokenType.Number, input[0..curI]);
+								curI--; // Adjust for the +1 used when we return.
+								goto Return;
+						}
 						break;
 
 					case State.F_:
@@ -441,6 +457,8 @@ final class JSONSerializationFormat : SerializationFormat
 			T parsedValue = new T();// TODO: constructDefault!T;
 			expect!(TokenType.LCurl);
 			parser.consume();
+			// TODO: Deal with Optional fields, and ensure all required fields
+			// have been deserialized.
 			while (parser.current.type == TokenType.String)
 			{
 				switch (parser.current.stringValue)
@@ -451,7 +469,7 @@ final class JSONSerializationFormat : SerializationFormat
 						{
 							import std.traitsExt : MemberType, setMemberValue;
 
-							case member:
+							case getFinalMemberName!(T, member):
 								parser.consume();
 								expect!(TokenType.Colon);
 								parser.consume();
@@ -464,6 +482,7 @@ final class JSONSerializationFormat : SerializationFormat
 						throw new Exception("Unknown member '" ~ parser.current.stringValue ~ "'!");
 				}
 
+				// TODO: Make this invalid if it's the last property.
 			ExitSwitch:
 				if (parser.current.type == TokenType.Comma)
 					parser.consume();
@@ -477,10 +496,14 @@ final class JSONSerializationFormat : SerializationFormat
 			static assert(0);
 			// Characters
 		}
-		else static if (isOneOf!(T, byte, ubyte, short, ushort, int, uint, long, ulong/*, cent, ucent*/))
+		else static if (isOneOf!(T, byte, ubyte, short, ushort, int, uint, long, ulong/*, cent, ucent*/, float, double, real))
 		{
-			static assert(0);
-			// Integers
+			import std.conv : to;
+
+			expect!(TokenType.Number);
+			T val = to!T(parser.current.stringValue);
+			parser.consume();
+			return val;
 		}
 		else static if (is(T == bool))
 		{
@@ -570,19 +593,19 @@ T fromJSON(T)(string val) @safe { return JSONSerializationFormat.fromJSON!T(val)
 	static assert(toJSON(new ULongField()) == `{"A":4021352154138321354}`, "Failed to correctly serialize a ulong field!");
 
 	//@serializable static class CentField { cent A = -23932104152349231532145324134; }
-	//assert(toJSON(new CentField()) == `{"A":-23932104152349231532145324134}`, "Failed to correctly serialize a cent field!");
+	//static assert(toJSON(new CentField()) == `{"A":-23932104152349231532145324134}`, "Failed to correctly serialize a cent field!");
 
 	//@serializable static class UCentField { ucent A = 40532432168321451235829354323; }
-	//assert(toJSON(new UCentField()) == `{"A":40532432168321451235829354323}`, "Failed to correctly serialize a ucent field!");
+	//static assert(toJSON(new UCentField()) == `{"A":40532432168321451235829354323}`, "Failed to correctly serialize a ucent field!");
 
 	@serializable static class FloatField { float A = -433200; }
-	assert(toJSON(new FloatField()) == `{"A":-433200}`, "Failed to correctly serialize a float field!");
+	static assert(toJSON(new FloatField()) == `{"A":-433200}`, "Failed to correctly serialize a float field!");
 
 	@serializable static class DoubleField { double A = 3.25432e+53; }
-	assert(toJSON(new DoubleField()) == `{"A":3.25432e+53}`, "Failed to correctly serialize a double field!");
+	static assert(toJSON(new DoubleField()) == `{"A":3.25432e+53}`, "Failed to correctly serialize a double field!");
 
 	@serializable static class RealField { real A = -2.13954e+104; }
-	assert(toJSON(new RealField()) == `{"A":-2.13954e+104}`, "Failed to correctly serialize a real field!");
+	static assert(toJSON(new RealField()) == `{"A":-2.13954e+104}`, "Failed to correctly serialize a real field!");
 
 	@serializable static class CharField { char A = '\x05'; }
 	static assert(toJSON(new CharField()) == `{"A":"\u0005"}`, "Failed to correctly serialize a char field!");
@@ -620,9 +643,17 @@ T fromJSON(T)(string val) @safe { return JSONSerializationFormat.fromJSON!T(val)
 
 	@serializable static class NullObjectField { Object A = null; }
 	static assert(toJSON(new NullObjectField()) == `{"A":null}`, "Failed to correctly serialize an Object field set to null!");
+	static assert(fromJSON!NullObjectField(`{"A":null}`).A is null, "Failed to correctly deserialize an Object field set to null!"); 
 
 	@serializable static class ClassField { SerializeAsField A = new SerializeAsField(); }
 	static assert(toJSON(new ClassField()) == `{"A":{"A":3,"D":5}}`, "Failed to correctly serialize a class field!");
+	static assert(() {
+		auto cfa = fromJSON!ClassField(`{"A":{"A":3,"D":5}}`);
+		assert(cfa.A);
+		assert(cfa.A.A == 3);
+		assert(cfa.A.B == 5);
+		return true;
+	}(), "Failed to correctly deserialize a class field!");
 
 	@serializable static class ClassArrayField { SerializeAsField[] A = [new SerializeAsField(), new SerializeAsField()]; }
 	static assert(toJSON(new ClassArrayField()) == `{"A":[{"A":3,"D":5},{"A":3,"D":5}]}`, "Failed to correctly serialize a class array field!");
