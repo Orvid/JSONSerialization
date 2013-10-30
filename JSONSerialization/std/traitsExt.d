@@ -288,10 +288,20 @@ template isMemberField(T, string member)
 	return __traits(getMember, val, member);
 }
 
+@property auto setMemberValue(string member, T, V)(T parent, V val) @safe pure nothrow
+{
+	mixin(`parent.` ~ member ~ ` = val;`);
+}
+
+template MemberType(T, string member)
+{
+	alias MemberType = typeof(getDefaultMemberValue!(T, member));
+}
+
 template getDefaultMemberValue(T, string member)
 	if (hasPublicDefaultConstructor!T)
 {
-	static if (isStruct!T)
+	static if (is(T == struct))
 		enum getDefaultMemberValue = __traits(getMember, T(), member);
 	else
 		enum getDefaultMemberValue = __traits(getMember, new T(), member);

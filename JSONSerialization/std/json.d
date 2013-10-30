@@ -18,12 +18,12 @@ final class JSONSerializationFormat : SerializationFormat
 		return fromJSON!T(cast(string)data); 
 	}
 
-	private static void putString(R, S)(R output, S str) @trusted pure
+	private static void putString(R, S)(ref R output, S str) @trusted pure
 		if (!is(Dequal!S == S) && isOutputRange!(R, string))
 	{
 		putString(output, cast(Dequal!S)str);
 	}
-	private static void putString(R, S)(R output, S str) @safe pure
+	private static void putString(R, S)(ref R output, S str) @safe pure
 		if (is(Dequal!S == S) && isOneOf!(ForeachType!S, char, wchar, dchar) && isOutputRange!(R, string))
 	{
 		// TODO: Decode each character individually so it properly supports the full UTF-32 range in UTF-8 strings.
@@ -34,7 +34,7 @@ final class JSONSerializationFormat : SerializationFormat
 		}
 	}
 
-	private static void putCharacter(R)(R range, dchar ch) @safe pure
+	private static void putCharacter(R)(ref R range, dchar ch) @safe pure
 	{
 		import std.format : formattedWrite;
 
@@ -80,13 +80,13 @@ final class JSONSerializationFormat : SerializationFormat
 		}
 	}
 
-	static void toJSON(Range, T)(Range output, T val) @trusted
+	static void toJSON(Range, T)(ref Range output, T val) @trusted
 		if (!is(Dequal!T == T) && isOutputRange!(Range, string))
 	{
 		return toJSON(output, cast(Dequal!T)val);
 	}
 	// TODO: When to!string(float | double | real) becomes safe, remove this.
-	static void toJSON(Range, T)(Range output, T val) @trusted
+	static void toJSON(Range, T)(ref Range output, T val) @trusted
 		if (is(Dequal!T == T) && isOneOf!(T, float, double, real) && isOutputRange!(Range, string))
 	{
 		import std.conv : to;
@@ -95,7 +95,7 @@ final class JSONSerializationFormat : SerializationFormat
 	}
 	// The overload above is designed to reduce the number of times this
 	// template is instantiated.
-	static void toJSON(Range, T)(Range output, T val) @safe
+	static void toJSON(Range, T)(ref Range output, T val) @safe
 		if (is(Dequal!T == T) && !isOneOf!(T, float, double, real) && isOutputRange!(Range, string))
 	{
 		import std.traits : isArray;
@@ -105,7 +105,7 @@ final class JSONSerializationFormat : SerializationFormat
 		{
 			if (!val)
 				output.put("null");
-			static if (is(T == Object))
+			else static if (is(T == Object))
 				output.put("{}");
 			else
 			{
@@ -172,32 +172,57 @@ final class JSONSerializationFormat : SerializationFormat
 			static assert(0, "Serializing the type '" ~ T.stringof ~ "' to JSON is not yet supported!");
 	}
 
-	private enum TokenType
+	private static struct JSONLexer(Range)
+		if (is(Range == string))
 	{
-		Unknown,
-		String,
-		Number,
-		LCurl,
-		RCurl,
-		LSquare,
-		RSquare,
-		Colon,
-		Comma,
-		False,
-		True,
-		Null,
-	}
-
-	private struct JSONParser(Range)
-		if (isInputRange!(Range, char))
-	{
-		private struct Token
+		private enum State
+		{
+			None,
+			String,
+			Number,
+			F_,
+			Fa_,
+			Fal_,
+			Fals_,
+			T_,
+			Tr_,
+			Tru_,
+			N_,
+			Nu_,
+			Nul_,
+		}
+		static struct Token
 		{
 			TokenType type = TokenType.Unknown;
 			string stringValue;
+
+			string toString()
+			{
+				import std.conv : to;
+				if (type == TokenType.String || type == TokenType.Number)
+					return to!string(type) ~ ": " ~ stringValue;
+				return to!string(type);
+			}
+		}
+		enum TokenType
+		{
+			Unknown,
+			String,
+			Number,
+			LCurl,
+			RCurl,
+			LSquare,
+			RSquare,
+			Colon,
+			Comma,
+			False,
+			True,
+			Null,
+			EOF,
 		}
 		Range input;
 		Token current;
+		@property bool EOF() { return current.type == TokenType.EOF; }
 
 		this(Range inRange)
 		{
@@ -205,16 +230,287 @@ final class JSONSerializationFormat : SerializationFormat
 			consume();
 		}
 
-		void consume() @safe pure nothrow
+		void consume() @safe pure
 		{
+			size_t curI = 0;
+			State curState = State.None;
 
+			while (curI < input.length)
+			{
+				final switch (curState)
+				{
+					case State.None:
+						switch (input[curI])
+						{
+							case '{':
+								current = Token(TokenType.LCurl);
+								goto Return;
+							case '}':
+								current = Token(TokenType.RCurl);
+								goto Return;
+							case '[':
+								current = Token(TokenType.LSquare);
+								goto Return;
+							case ']':
+								current = Token(TokenType.RSquare);
+								goto Return;
+							case ':':
+								current = Token(TokenType.Colon);
+								goto Return;
+							case ',':
+								current = Token(TokenType.Comma);
+								goto Return;
+
+							case 'F', 'f':
+								curState = State.F_;
+								curI++;
+								break;
+							case 'T', 't':
+								curState = State.T_;
+								curI++;
+								break;
+							case 'N', 'n':
+								curState = State.N_;
+								curI++;
+								break;
+
+							case '"':
+								curState = State.String;
+								curI++;
+								break;
+
+							default:
+								// TODO: This shouldn't throw an exception.
+								throw new Exception("Unknown input '" ~ input[curI] ~ "'!");
+						}
+						break;
+					case State.String:
+						if (input[curI] == '\\')
+						{
+							if (curI + 1 >= input.length)
+								throw new Exception("Unexpected EOF");
+							curI++;
+							curI++;
+						}
+						else if (input[curI] == '"')
+						{
+							current = Token(TokenType.String, input[1..curI]);
+							goto Return;
+						}
+						else
+							curI++;
+						break;
+					// TODO TODO TODO TODO TODO: Implement.
+					case State.Number:
+						break;
+
+					case State.F_:
+						if (input[curI] == 'A' || input[curI] == 'a')
+						{
+							curState = State.Fa_;
+							curI++;
+						}
+						else
+							throw new Exception("");
+						break;
+					case State.Fa_:
+						if (input[curI] == 'L' || input[curI] == 'l')
+						{
+							curState = State.Fal_;
+							curI++;
+						}
+						else
+							throw new Exception("");
+						break;
+					case State.Fal_:
+						if (input[curI] == 'S' || input[curI] == 's')
+						{
+							curState = State.Fals_;
+							curI++;
+						}
+						else
+							throw new Exception("");
+						break;
+					case State.Fals_:
+						if (input[curI] == 'E' || input[curI] == 'e')
+						{
+							current = Token(TokenType.False);
+							goto Return;
+						}
+						else
+							throw new Exception("");
+						break;
+
+					case State.T_:
+						if (input[curI] == 'R' || input[curI] == 'r')
+						{
+							curState = State.Tr_;
+							curI++;
+						}
+						else
+							throw new Exception("");
+						break;
+					case State.Tr_:
+						if (input[curI] == 'U' || input[curI] == 'u')
+						{
+							curState = State.Tru_;
+							curI++;
+						}
+						else
+							throw new Exception("");
+						break;
+					case State.Tru_:
+						if (input[curI] == 'E' || input[curI] == 'e')
+						{
+							current = Token(TokenType.True);
+							goto Return;
+						}
+						else
+							throw new Exception("");
+						break;
+
+					case State.N_:
+						if (input[curI] == 'U' || input[curI] == 'u')
+						{
+							curState = State.Nu_;
+							curI++;
+						}
+						else
+							throw new Exception("");
+						break;
+					case State.Nu_:
+						if (input[curI] == 'L' || input[curI] == 'l')
+						{
+							curState = State.Nul_;
+							curI++;
+						}
+						else
+							throw new Exception("");
+						break;
+					case State.Nul_:
+						if (input[curI] == 'L' || input[curI] == 'l')
+						{
+							current = Token(TokenType.Null);
+							goto Return;
+						}
+						else
+							throw new Exception("");
+						break;
+				}
+			}
+			if (curState != State.None)
+				throw new Exception("Unexpected EOF!");
+			current = Token(TokenType.EOF);
+			return;
+
+		Return:
+			input = input[curI + 1..$];
 		}
 
 	}
 
-	static T fromJSON(T)(string val) @safe pure nothrow
-	{
+	private static T deserializeValue(T, PT)(ref PT parser) @safe pure
+	{	
+		alias TokenType = PT.TokenType;
+		void expect(TokenTypes...)() @safe
+		{
+			switch (parser.current.type)
+			{
+				foreach (tp; TokenTypes)
+				{
+					case tp:
+						return;
+				}
+				default:
+					throw new Exception("Unexpected token!");// `" ~ to!string(parser.current.type) ~ "`!"); // TODO: Make more descriptive
+			}
+		}
+		
+		import std.traits : isArray;
+		import std.traitsExt : isClass;
+		
+		static if (isClass!T)
+		{
+			if (parser.current.type == TokenType.Null)
+			{
+				parser.consume();
+				return null;
+			}
+			ensureSerializable!T();
+			ensurePublicConstructor!T();
+			T parsedValue = new T();// TODO: constructDefault!T;
+			expect!(TokenType.LCurl);
+			parser.consume();
+			while (parser.current.type == TokenType.String)
+			{
+				switch (parser.current.stringValue)
+				{
+					foreach (member; __traits(allMembers, T))
+					{
+						static if (shouldSerializeMember!(T, member))
+						{
+							import std.traitsExt : MemberType, setMemberValue;
+
+							case member:
+								parser.consume();
+								expect!(TokenType.Colon);
+								parser.consume();
+								setMemberValue!member(parsedValue, deserializeValue!(MemberType!(T, member))(parser));
+								goto ExitSwitch;
+						}
+					}
+
+					default:
+						throw new Exception("Unknown member '" ~ parser.current.stringValue ~ "'!");
+				}
+
+			ExitSwitch:
+				if (parser.current.type == TokenType.Comma)
+					parser.consume();
+			}
+			expect!(TokenType.RCurl);
+			parser.consume();
+			return parsedValue;
+		}
+		else static if (isOneOf!(T, char, wchar, dchar))
+		{
+			static assert(0);
+			// Characters
+		}
+		else static if (isOneOf!(T, byte, ubyte, short, ushort, int, uint, long, ulong/*, cent, ucent*/))
+		{
+			static assert(0);
+			// Integers
+		}
+		else static if (is(T == bool))
+		{
+			expect!(TokenType.True, TokenType.False);
+			bool ret = parser.current.type == TokenType.True;
+			parser.consume();
+			return ret;
+		}
+		else static if (isArray!T)
+		{
+			static assert(0);
+			static if (isOneOf!(ForeachType!T, char, wchar, dchar))
+			{
+				// String
+			}
+			else
+			{
+				// Normal Array
+			}
+		}
+		else
+			static assert(0, "Serializing the type '" ~ T.stringof ~ "' to JSON is not yet supported!");
 		return T.init;
+	}
+
+	static T fromJSON(T)(string val) @safe
+	{
+		auto parser = JSONLexer!string(val);
+
+		return deserializeValue!T(parser);
 	}
 }
 
@@ -226,50 +522,52 @@ string toJSON(T)(T val) @safe
 	JSONSerializationFormat.toJSON(ret, val);
 	return ret.data;
 }
-T fromJSON(T)(string val) @safe pure nothrow { return JSONSerializationFormat.fromJSON!T(val); }
+T fromJSON(T)(string val) @safe { return JSONSerializationFormat.fromJSON!T(val); }
 
 @safe unittest
 {
+	import std.algorithm : equal;
+	import std.conv : to;
 	import std.serialization : nonSerialized, optional, serializeAs, serializable;
 
 	@serializable static class PrivateConstructor { private this() { } @optional int A = 3; int B = 5; }
-	assert(!__traits(compiles, { assert(toJSON(new PrivateConstructor()) == `{"B":5}`); }), "A private constructor was allowed for a serializable class!");
+	static assert(!__traits(compiles, { assert(toJSON(new PrivateConstructor()) == `{"B":5}`); }), "A private constructor was allowed for a serializable class!");
 	
 	static class NonSerializable { @optional int A = 3; int B = 5; }
-	assert(!__traits(compiles, { assert(toJSON(new NonSerializable()) == `{"B":5}`); }), "A class not marked with @serializable was allowed!");
+	static assert(!__traits(compiles, { assert(toJSON(new NonSerializable()) == `{"B":5}`); }), "A class not marked with @serializable was allowed!");
 
 	@serializable static class OptionalField { @optional int A = 3; int B = 5; }
-	assert(toJSON(new OptionalField()) == `{"B":5}`, "An optional field set to its default value was not excluded!");
+	static assert(toJSON(new OptionalField()) == `{"B":5}`, "An optional field set to its default value was not excluded!");
 
 	@serializable static class NonSerializedField { int A = 3; @nonSerialized int B = 2; }
-	assert(toJSON(new NonSerializedField()) == `{"A":3}`, "A field marked with @nonSerialized was included!");
+	static assert(toJSON(new NonSerializedField()) == `{"A":3}`, "A field marked with @nonSerialized was included!");
 
 	@serializable static class SerializeAsField { int A = 3; @serializeAs(`D`) int B = 5; @nonSerialized int D = 7; }
-	assert(toJSON(new SerializeAsField()) == `{"A":3,"D":5}`, "A field marked with @serializeAs(`D`) failed to serialize as D!");
+	static assert(toJSON(new SerializeAsField()) == `{"A":3,"D":5}`, "A field marked with @serializeAs(`D`) failed to serialize as D!");
 
 	@serializable static class ByteField { byte A = -3; }
-	assert(toJSON(new ByteField()) == `{"A":-3}`, "Failed to correctly serialize a byte field!");
+	static assert(toJSON(new ByteField()) == `{"A":-3}`, "Failed to correctly serialize a byte field!");
 
 	@serializable static class UByteField { ubyte A = 159; }
-	assert(toJSON(new UByteField()) == `{"A":159}`, "Failed to correctly serialize a ubyte field!");
+	static assert(toJSON(new UByteField()) == `{"A":159}`, "Failed to correctly serialize a ubyte field!");
 
 	@serializable static class ShortField { short A = -26125; }
-	assert(toJSON(new ShortField()) == `{"A":-26125}`, "Failed to correctly serialize a short field!");
+	static assert(toJSON(new ShortField()) == `{"A":-26125}`, "Failed to correctly serialize a short field!");
 
 	@serializable static class UShortField { ushort A = 65313; }
-	assert(toJSON(new UShortField()) == `{"A":65313}`, "Failed to correctly serialize a ushort field!");
+	static assert(toJSON(new UShortField()) == `{"A":65313}`, "Failed to correctly serialize a ushort field!");
 
 	@serializable static class IntField { int A = -2032534342; }
-	assert(toJSON(new IntField()) == `{"A":-2032534342}`, "Failed to correctly serialize an int field!");
+	static assert(toJSON(new IntField()) == `{"A":-2032534342}`, "Failed to correctly serialize an int field!");
 
 	@serializable static class UIntField { uint A = 2520041234; }
-	assert(toJSON(new UIntField()) == `{"A":2520041234}`, "Failed to correctly serialize a uint field!");
+	static assert(toJSON(new UIntField()) == `{"A":2520041234}`, "Failed to correctly serialize a uint field!");
 
 	@serializable static class LongField { long A = -2305393212345134623; }
-	assert(toJSON(new LongField()) == `{"A":-2305393212345134623}`, "Failed to correctly serialize a long field!");
+	static assert(toJSON(new LongField()) == `{"A":-2305393212345134623}`, "Failed to correctly serialize a long field!");
 
 	@serializable static class ULongField { ulong A = 4021352154138321354; }
-	assert(toJSON(new ULongField()) == `{"A":4021352154138321354}`, "Failed to correctly serialize a ulong field!");
+	static assert(toJSON(new ULongField()) == `{"A":4021352154138321354}`, "Failed to correctly serialize a ulong field!");
 
 	//@serializable static class CentField { cent A = -23932104152349231532145324134; }
 	//assert(toJSON(new CentField()) == `{"A":-23932104152349231532145324134}`, "Failed to correctly serialize a cent field!");
@@ -287,301 +585,304 @@ T fromJSON(T)(string val) @safe pure nothrow { return JSONSerializationFormat.fr
 	assert(toJSON(new RealField()) == `{"A":-2.13954e+104}`, "Failed to correctly serialize a real field!");
 
 	@serializable static class CharField { char A = '\x05'; }
-	assert(toJSON(new CharField()) == `{"A":"\u0005"}`, "Failed to correctly serialize a char field!");
+	static assert(toJSON(new CharField()) == `{"A":"\u0005"}`, "Failed to correctly serialize a char field!");
 
 	@serializable static class WCharField { wchar A = '\u04DA'; }
-	assert(toJSON(new WCharField()) == `{"A":"\u04DA"}`, "Failed to correctly serialize a wchar field!");
+	static assert(toJSON(new WCharField()) == `{"A":"\u04DA"}`, "Failed to correctly serialize a wchar field!");
 
 	@serializable static class DCharField { dchar A = '\U0010FFFF'; }
-	assert(toJSON(new DCharField()) == `{"A":"\x0010FFFF"}`, "Failed to correctly serialize a dchar field!");
+	static assert(toJSON(new DCharField()) == `{"A":"\x0010FFFF"}`, "Failed to correctly serialize a dchar field!");
 
 	@serializable static class StringField { string A = "Hello!\b\"\u08A8\U0010FFFF"; }
-	assert(toJSON(new StringField()) == `{"A":"Hello!\b\"\u08A8\x0010FFFF"}`, "Failed to correctly serialize a string field!");
+	static assert(toJSON(new StringField()) == `{"A":"Hello!\b\"\u08A8\x0010FFFF"}`, "Failed to correctly serialize a string field!");
 
 	@serializable static class WStringField { wstring A = "Hello!\b\"\u08A8\U0010FFFF"; }
-	assert(toJSON(new WStringField()) == `{"A":"Hello!\b\"\u08A8\x0010FFFF"}`, "Failed to correctly serialize a wstring field!");
+	static assert(toJSON(new WStringField()) == `{"A":"Hello!\b\"\u08A8\x0010FFFF"}`, "Failed to correctly serialize a wstring field!");
 
-// TODO: Uncomment this once the bug in Mono-D is fixed.
-/+
 	() @trusted {
 		@serializable static class WCharArrayField { wchar[] A = cast(wchar[])"Hello!\b\"\u08A8\U0010FFFF"w; }
-		assert(toJSON(new WCharArrayField()) == `{"A":"Hello!\b\"\u08A8\x0010FFFF"}`, "Failed to correctly serialize a wchar[] field!");
+		static assert(toJSON(new WCharArrayField()) == `{"A":"Hello!\b\"\u08A8\x0010FFFF"}`, "Failed to correctly serialize a wchar[] field!");
 	}();
-+/
-
 
 	@serializable static class ConstWCharArrayField { const(wchar)[] A = "Hello!\b\"\u08A8\U0010FFFF"w; }
-	assert(toJSON(new ConstWCharArrayField()) == `{"A":"Hello!\b\"\u08A8\x0010FFFF"}`, "Failed to correctly serialize a const(wchar)[] field!");
+	static assert(toJSON(new ConstWCharArrayField()) == `{"A":"Hello!\b\"\u08A8\x0010FFFF"}`, "Failed to correctly serialize a const(wchar)[] field!");
 
 	@serializable static class DStringField { dstring A = "Hello!\b\"\u08A8\U0010FFFF"d; }
-	assert(toJSON(new DStringField()) == `{"A":"Hello!\b\"\u08A8\x0010FFFF"}`, "Failed to correctly serialize a dstring field!");
+	static assert(toJSON(new DStringField()) == `{"A":"Hello!\b\"\u08A8\x0010FFFF"}`, "Failed to correctly serialize a dstring field!");
 
-	@serializable static class FalseBoolField { bool A = false; }
-	assert(toJSON(new FalseBoolField()) == `{"A":false}`, "Failed to correctly serialize a bool field set to false!");
+	@serializable static class FalseBoolField { bool A; auto Init() { A = false; return this; } }
+	static assert(toJSON((new FalseBoolField()).Init()) == `{"A":false}`, "Failed to correctly serialize a bool field set to false!");
+	static assert(fromJSON!FalseBoolField(`{"A":false}`).A == false, "Failed to correctly deserialize a bool field set to false!");
 
 	@serializable static class TrueBoolField { bool A = true; }
-	assert(toJSON(new TrueBoolField()) == `{"A":true}`, "Failed to correctly serialize a bool field set to true!");
+	static assert(toJSON(new TrueBoolField()) == `{"A":true}`, "Failed to correctly serialize a bool field set to true!");
+	static assert(fromJSON!TrueBoolField(`{"A":true}`).A == true, "Failed to correctly deserialize a bool field set to true!");
 
 	@serializable static class NullObjectField { Object A = null; }
-	assert(toJSON(new NullObjectField()) == `{"A":null}`, "Failed to correctly serialize an Object field set to null!");
+	static assert(toJSON(new NullObjectField()) == `{"A":null}`, "Failed to correctly serialize an Object field set to null!");
 
 	@serializable static class ClassField { SerializeAsField A = new SerializeAsField(); }
-	assert(toJSON(new ClassField()) == `{"A":{"A":3,"D":5}}`, "Failed to correctly serialize a class field!");
+	static assert(toJSON(new ClassField()) == `{"A":{"A":3,"D":5}}`, "Failed to correctly serialize a class field!");
 
 	@serializable static class ClassArrayField { SerializeAsField[] A = [new SerializeAsField(), new SerializeAsField()]; }
-	assert(toJSON(new ClassArrayField()) == `{"A":[{"A":3,"D":5},{"A":3,"D":5}]}`, "Failed to correctly serialize a class array field!");
+	static assert(toJSON(new ClassArrayField()) == `{"A":[{"A":3,"D":5},{"A":3,"D":5}]}`, "Failed to correctly serialize a class array field!");
 
 	@serializable static class IntArrayField { int[] A = [-3, 6, 190]; }
-	assert(toJSON(new IntArrayField()) == `{"A":[-3,6,190]}`, "Failed to correctly serialize a int[] field!");
+	static assert(toJSON(new IntArrayField()) == `{"A":[-3,6,190]}`, "Failed to correctly serialize a int[] field!");
+
+
 }
 
-enum JSONElementType
+version (none)
 {
-	unknown,
-	array,
-	boolean,
-	number,
-	object,
-	string,
-}
-
-final class JSONElement
-{
-private:
-	JSONElementType type = JSONElementType.unknown;
-	string innerValue;
-	
-	union
+	enum JSONElementType
 	{
-		JSONElement[] arrayValueCache;
-		JSONElement[string] objectValueCache;
-	}
-	
-	template jsonElementTypeOf(T)
-	{
-		import std.traits : isArray, isNumeric, isSomeString;
-		
-		static if (isArray!T)
-			enum jsonElementTypeOf = JSONElementType.array;
-		else static if (isNumeric!T)
-			enum jsonElementTypeOf = JSONElementType.number;
-		else static if (isSomeString!T)
-			enum jsonElementTypeOf = JSONElementType.string;
-		else static if (is(T == bool))
-			enum jsonElementTypeOf = JSONElementType.boolean;
-		else
-			enum jsonElementTypeOf = JSONElementType.object;
-	}
-
-	void ensureObject() @safe pure nothrow
-	{
-		if (type == JSONElementType.unknown)
-			type = JSONElementType.object;
-		assert(type == JSONElementType.object);
-		if (!objectValueCache && innerValue)
-			objectValueCache = fromJSON!(JSONElement[string])(innerValue);
-	}
-
-	void ensureArray() @safe pure nothrow
-	{
-		if (type == JSONElementType.unknown)
-			type = JSONElementType.array;
-		assert(type == JSONElementType.array);
-		if (!arrayValueCache && innerValue)
-			arrayValueCache = fromJSON!(JSONElement[])(innerValue);
-	}
-	
-public:
-	this(T val, T)()
-	{
-		innerValue = toJSON!(val);
-		type = jsonElementTypeOf!(T);
-	}
-	this(T)(in T val)
-	{
-		innerValue = toJSON(val);
-		type = jsonElementTypeOf!(T);
-	}
-	this()()
-	{
-	}
-	
-	JSONElement opIndex(size_t i) @safe pure nothrow
-	{
-		ensureArray();
-		return arrayValueCache[i];
-	}
-
-	JSONElement opIndex(in string key) @safe pure nothrow
-	{
-		ensureObject();
-		return objectValueCache[key];
-	}
-	
-	JSONElement opIndexAssign(T)(in T val, in string key) @safe pure nothrow
-	{
-		ensureObject();
-		return objectValueCache[key] = new JSONElement(val);
-	}
-	
-	JSONElement opBinary(string op : "in")(in string key) @safe pure nothrow
-	{
-		ensureObject();
-		return key in objectValueCache;
-	}
-	
-	@property T value(T)() @safe pure nothrow
-	{
-		return fromJSON!T(innerValue);
-	}
-}
-
-
-import std.range : isOutputRange;
-
-final class JSONWriter(OutputRange)
-	if (isOutputRange!(OutputRange, string))
-{
-	import std.collections : Stack;
-	
-private:
-	enum WriteContext
-	{
+		unknown,
 		array,
-		field,
+		boolean,
+		number,
 		object,
+		string,
 	}
-	OutputRange output;
-	Stack!WriteContext contextStack = new Stack!WriteContext();
-	// Believe it or not, we only need a single
-	// bool here regardless of how deep the json
-	// is, due to the fact that if we've written
-	// a value, it's no longer the first element.
-	bool firstElement = true;
-	
-	void checkWriteComma() @safe pure nothrow
-	{
-		if (!firstElement)
-			output.put(",");
-	}
-	
-public:
-	this(OutputRange outputRange) @safe pure nothrow
-	{
-		output = outputRange;
-	}
-	
-	void startObject() @safe pure nothrow
-	{
-		import std.range : put;
-		
-		checkWriteComma();
-		output.put("{");
-		contextStack.push(WriteContext.object);
-		firstElement = true;
-	}
-	
-	void endObject() @safe pure nothrow
-	{
-		import std.range : put;
-		
-		assert(contextStack.pop() == WriteContext.object, "Tried to end an object while in a non-object context!");
-		output.put("}");
-		firstElement = false;
-	}
-	
-	void startArray() @safe pure nothrow
-	{
-		import std.range : put;
-		
-		checkWriteComma();
-		output.put("[");
-		contextStack.push(WriteContext.array);
-		firstElement = true;
-	}
-	
-	void endArray() @safe pure nothrow
-	{
-		import std.range : put;
-		
-		assert(contextStack.pop() == WriteContext.array, "Tried to end an array while in a non-array context!");
-		output.put("]");
-		firstElement = false;
-	}
-	
-	void startField(string name)() @safe pure nothrow
-	{
-		import std.range : put;
-		
-		checkWriteComma();
-		output.put(`"` ~ JSONSerializationFormat.EscapeString(name) ~ `":`);
-		contextStack.push(WriteContext.field);
-		firstElement = true;
-	}
-	
-	void startField(in string name) @safe pure
-	{
-		import std.range : put;
-		
-		checkWriteComma();
-		output.put(`"`);
-		JSONSerializationFormat.putString(output, name);
-		output.put(`":`);
-		contextStack.push(WriteContext.field);
-		firstElement = true;
-	}
-	
-	void endField() @safe pure nothrow
-	{
-		assert(contextStack.pop() == WriteContext.field, "Tried to end a field while in a non-field context!");
-		firstElement = false;
-	}
-	
-	void writeValue(T val, T)() @safe
-	{
-		checkWriteComma();
-		toJSON!(val)(output);
-		firstElement = false;
-	}
-	
-	void writeValue(T)(in T val) @safe
-	{
-		checkWriteComma();
-		toJSON(val, output);
-		firstElement = false;
-	}
-	
-	void writeField(string field, T val, T)() @safe
-	{
-		checkWriteComma();
-		startField!(field);
-		writeValue!(val);
-		endField();
-		firstElement = false;
-	}
-	
-	void writeField(string field, T)(in T val) @safe
-	{
-		checkWriteComma();
-		startField!(field);
-		writeValue(val);
-		endField();
-		firstElement = false;
-	}
-	
-	void writeField(T)(in string field, in T val) @safe
-	{
-		checkWriteComma();
-		startField(field);
-		writeValue(val);
-		endField();
-		firstElement = false;
-	}
-}
-@safe unittest
-{
-	import std.range : Appender;
 
-	auto dst = Appender!string();
-	auto wtr = new JSONWriter!(Appender!string)(dst);
+	final class JSONElement
+	{
+	private:
+		JSONElementType type = JSONElementType.unknown;
+		string innerValue;
+		
+		union
+		{
+			JSONElement[] arrayValueCache;
+			JSONElement[string] objectValueCache;
+		}
+		
+		template jsonElementTypeOf(T)
+		{
+			import std.traits : isArray, isNumeric, isSomeString;
+			
+			static if (isArray!T)
+				enum jsonElementTypeOf = JSONElementType.array;
+			else static if (isNumeric!T)
+				enum jsonElementTypeOf = JSONElementType.number;
+			else static if (isSomeString!T)
+				enum jsonElementTypeOf = JSONElementType.string;
+			else static if (is(T == bool))
+				enum jsonElementTypeOf = JSONElementType.boolean;
+			else
+				enum jsonElementTypeOf = JSONElementType.object;
+		}
+
+		void ensureObject() @safe pure nothrow
+		{
+			if (type == JSONElementType.unknown)
+				type = JSONElementType.object;
+			assert(type == JSONElementType.object);
+			if (!objectValueCache && innerValue)
+				objectValueCache = fromJSON!(JSONElement[string])(innerValue);
+		}
+
+		void ensureArray() @safe pure nothrow
+		{
+			if (type == JSONElementType.unknown)
+				type = JSONElementType.array;
+			assert(type == JSONElementType.array);
+			if (!arrayValueCache && innerValue)
+				arrayValueCache = fromJSON!(JSONElement[])(innerValue);
+		}
+		
+	public:
+		this(T val, T)()
+		{
+			innerValue = toJSON!(val);
+			type = jsonElementTypeOf!(T);
+		}
+		this(T)(in T val)
+		{
+			innerValue = toJSON(val);
+			type = jsonElementTypeOf!(T);
+		}
+		this()()
+		{
+		}
+		
+		JSONElement opIndex(size_t i) @safe pure nothrow
+		{
+			ensureArray();
+			return arrayValueCache[i];
+		}
+
+		JSONElement opIndex(in string key) @safe pure nothrow
+		{
+			ensureObject();
+			return objectValueCache[key];
+		}
+		
+		JSONElement opIndexAssign(T)(in T val, in string key) @safe pure nothrow
+		{
+			ensureObject();
+			return objectValueCache[key] = new JSONElement(val);
+		}
+		
+		JSONElement opBinary(string op : "in")(in string key) @safe pure nothrow
+		{
+			ensureObject();
+			return key in objectValueCache;
+		}
+		
+		@property T value(T)() @safe pure nothrow
+		{
+			return fromJSON!T(innerValue);
+		}
+	}
+
+
+	import std.range : isOutputRange;
+
+	final class JSONWriter(OutputRange)
+		if (isOutputRange!(OutputRange, string))
+	{
+		import std.collections : Stack;
+		
+	private:
+		enum WriteContext
+		{
+			array,
+			field,
+			object,
+		}
+		OutputRange output;
+		Stack!WriteContext contextStack = new Stack!WriteContext();
+		// Believe it or not, we only need a single
+		// bool here regardless of how deep the json
+		// is, due to the fact that if we've written
+		// a value, it's no longer the first element.
+		bool firstElement = true;
+		
+		void checkWriteComma() @safe pure nothrow
+		{
+			if (!firstElement)
+				output.put(",");
+		}
+		
+	public:
+		this(OutputRange outputRange) @safe pure nothrow
+		{
+			output = outputRange;
+		}
+		
+		void startObject() @safe pure nothrow
+		{
+			import std.range : put;
+			
+			checkWriteComma();
+			output.put("{");
+			contextStack.push(WriteContext.object);
+			firstElement = true;
+		}
+		
+		void endObject() @safe pure nothrow
+		{
+			import std.range : put;
+			
+			assert(contextStack.pop() == WriteContext.object, "Tried to end an object while in a non-object context!");
+			output.put("}");
+			firstElement = false;
+		}
+		
+		void startArray() @safe pure nothrow
+		{
+			import std.range : put;
+			
+			checkWriteComma();
+			output.put("[");
+			contextStack.push(WriteContext.array);
+			firstElement = true;
+		}
+		
+		void endArray() @safe pure nothrow
+		{
+			import std.range : put;
+			
+			assert(contextStack.pop() == WriteContext.array, "Tried to end an array while in a non-array context!");
+			output.put("]");
+			firstElement = false;
+		}
+		
+		void startField(string name)() @safe pure nothrow
+		{
+			import std.range : put;
+			
+			checkWriteComma();
+			output.put(`"` ~ JSONSerializationFormat.EscapeString(name) ~ `":`);
+			contextStack.push(WriteContext.field);
+			firstElement = true;
+		}
+		
+		void startField(in string name) @safe pure
+		{
+			import std.range : put;
+			
+			checkWriteComma();
+			output.put(`"`);
+			JSONSerializationFormat.putString(output, name);
+			output.put(`":`);
+			contextStack.push(WriteContext.field);
+			firstElement = true;
+		}
+		
+		void endField() @safe pure nothrow
+		{
+			assert(contextStack.pop() == WriteContext.field, "Tried to end a field while in a non-field context!");
+			firstElement = false;
+		}
+		
+		void writeValue(T val, T)() @safe
+		{
+			checkWriteComma();
+			toJSON!(val)(output);
+			firstElement = false;
+		}
+		
+		void writeValue(T)(in T val) @safe
+		{
+			checkWriteComma();
+			toJSON(val, output);
+			firstElement = false;
+		}
+		
+		void writeField(string field, T val, T)() @safe
+		{
+			checkWriteComma();
+			startField!(field);
+			writeValue!(val);
+			endField();
+			firstElement = false;
+		}
+		
+		void writeField(string field, T)(in T val) @safe
+		{
+			checkWriteComma();
+			startField!(field);
+			writeValue(val);
+			endField();
+			firstElement = false;
+		}
+		
+		void writeField(T)(in string field, in T val) @safe
+		{
+			checkWriteComma();
+			startField(field);
+			writeValue(val);
+			endField();
+			firstElement = false;
+		}
+	}
+	@safe unittest
+	{
+		import std.range : Appender;
+
+		auto dst = Appender!string();
+		auto wtr = new JSONWriter!(Appender!string)(dst);
+	}
 }
