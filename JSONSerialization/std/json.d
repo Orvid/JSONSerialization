@@ -614,8 +614,8 @@ T fromJSON(T)(string val) @safe { return JSONSerializationFormat.fromJSON!T(val)
 	static assert(toJSON((new FalseBoolField()).Init()) == `{"A":false}`, "Failed to correctly serialize a bool field set to false!");
 	static assert(fromJSON!FalseBoolField(`{"A":false}`).A == false, "Failed to correctly deserialize a bool field set to false!");
 
-	@serializable static class TrueBoolField { bool A = true; }
-	static assert(toJSON(new TrueBoolField()) == `{"A":true}`, "Failed to correctly serialize a bool field set to true!");
+	@serializable static class TrueBoolField { bool A; auto Init() { A = true; return this; } }
+	static assert(toJSON((new TrueBoolField()).Init()) == `{"A":true}`, "Failed to correctly serialize a bool field set to true!");
 	static assert(fromJSON!TrueBoolField(`{"A":true}`).A == true, "Failed to correctly deserialize a bool field set to true!");
 
 	@serializable static class NullObjectField { Object A = null; }
