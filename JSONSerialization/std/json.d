@@ -18,12 +18,12 @@ final class JSONSerializationFormat : SerializationFormat
 		return fromJSON!T(cast(string)data); 
 	}
 
-	private static void putString(R, S)(ref R output, S str) @trusted pure
+	private static void putString(R, S)(ref R output, S str) @trusted// pure
 		if (!is(Dequal!S == S) && isOutputRange!(R, string))
 	{
 		putString(output, cast(Dequal!S)str);
 	}
-	private static void putString(R, S)(ref R output, S str) @safe pure
+	private static void putString(R, S)(ref R output, S str) @safe// pure
 		if (is(Dequal!S == S) && isOneOf!(ForeachType!S, char, wchar, dchar) && isOutputRange!(R, string))
 	{
 		// TODO: Decode each character individually so it properly supports the full UTF-32 range in UTF-8 strings.
@@ -34,7 +34,7 @@ final class JSONSerializationFormat : SerializationFormat
 		}
 	}
 
-	private static void putCharacter(R)(ref R range, dchar ch) @safe pure
+	private static void putCharacter(R)(ref R range, dchar ch) @safe// pure
 	{
 		import std.format : formattedWrite;
 
@@ -68,13 +68,13 @@ final class JSONSerializationFormat : SerializationFormat
 			case 0x23: .. case 0x2E:
 			case 0x30: .. case 0x5B:
 			case 0x5D: .. case 0x7E:
-				range.put(ch);
+				range.put(cast(char)ch);
 				break;
 			default:
 				if (ch <= 0xFFFF)
 					formattedWrite(range, "\\u%04X", cast(ushort)ch);
 				else
-					// This is non-standard behaviour, but allows us to (de)serialize dchars.
+					// NOTE: This is non-standard behaviour, but allows us to (de)serialize dchars.
 					formattedWrite(range, "\\x%08X", cast(uint)ch);
 				break;
 		}
@@ -133,10 +133,10 @@ final class JSONSerializationFormat : SerializationFormat
 		}
 		else static if (isOneOf!(T, char, wchar, dchar))
 		{
-			// This may need to change as JSON doesn't support the full UTF8 range in strings by default.
-			output.put(`"`);
+			// NOTE: This may need to change as JSON doesn't support the full UTF8 range in strings by default.
+			output.put('"');
 			putCharacter(output, val);
-			output.put(`"`);
+			output.put('"');
 		}
 		else static if (isOneOf!(T, byte, ubyte, short, ushort, int, uint, long, ulong/*, cent, ucent*/))
 		{
@@ -152,9 +152,9 @@ final class JSONSerializationFormat : SerializationFormat
 		{
 			static if (isOneOf!(ForeachType!T, char, wchar, dchar))
 			{
-				output.put(`"`);
+				output.put('"');
 				putString(output, val);
-				output.put(`"`);
+				output.put('"');
 			}
 			else
 			{
@@ -279,6 +279,7 @@ final class JSONSerializationFormat : SerializationFormat
 								curI++;
 								break;
 
+							case '-', '+':
 							case '0': .. case '9':
 								curState = State.Number;
 								curI++;
@@ -305,10 +306,10 @@ final class JSONSerializationFormat : SerializationFormat
 						else
 							curI++;
 						break;
-					// TODO TODO TODO TODO TODO: Implement.
 					case State.Number:
 						switch (input[curI])
 						{
+							case 'E', 'e', '+', '-', '.':
 							case '0': .. case '9':
 								curI++;
 								break;
@@ -422,14 +423,107 @@ final class JSONSerializationFormat : SerializationFormat
 		Return:
 			input = input[curI + 1..$];
 		}
-
 	}
 
-	private static T deserializeValue(T, PT)(ref PT parser) @safe pure
+	private static C getCharacter(C, IR)(ref IR input) @safe pure
+		if (is(IR == string) && isOneOf!(C, char, wchar, dchar))
+	in
+	{
+		assert(input.length > 0);
+	}
+	body
+	{
+		import std.conv : parse, to;
+
+		size_t readLength = 0;
+		dchar decoded = '\0';
+
+		// TODO?: Add sanity check to ensure there are values in the input.
+		if (input[0] == '\\')
+		{
+			if (input.length < 2)
+				throw new Exception("Unexpected EOF!");
+			switch (input[1])
+			{
+				case '\\':
+				case '/':
+				case '"':
+					decoded = input[1];
+					readLength += 2;
+					break;
+				case 'B', 'b':
+					decoded = '\b';
+					readLength += 2;
+					break;
+				case 'F', 'f':
+					decoded = '\f';
+					readLength += 2;
+					break;
+				case 'N', 'n':
+					decoded = '\n';
+					readLength += 2;
+					break;
+				case 'R', 'r':
+					decoded = '\r';
+					readLength += 2;
+					break;
+				case 'T', 't':
+					decoded = '\t';
+					readLength += 2;
+					break;
+
+				case 'U', 'u':
+					if (input.length < 6)
+						throw new Exception("Unexpected EOF!");
+					decoded = to!dchar(to!wchar(to!ushort(input[2..6], 16)));
+					readLength += 6;
+					break;
+				case 'X', 'x':
+					if (input.length < 10)
+						throw new Exception("Unexpected EOF!");
+					decoded = to!dchar(to!uint(input[2..10], 16));
+					readLength += 10;
+					break;
+				default:
+					// REVIEW: Should we go for spec complaince (invalid) or for the ability to handle invalid input?
+					version(none)
+					{
+						// Spec Compliance
+						throw new Exception("Unknown escape sequence!");
+					}
+					else
+					{
+						// Unknown escape sequence, so use the character
+						// immediately following the backslash as a literal.
+						decoded = input[1];
+						readLength += 2;
+						break;
+					}
+			}
+		}
+		else
+		{
+			readLength++;
+			decoded = input[0];
+		}
+
+
+		input = input[readLength..$];
+		return to!C(decoded);
+	}
+
+	private static T deserializeValue(T, PT)(ref PT parser) @trusted
+		if (!is(Dequal!T == T))
+	{
+		return cast(T)deserializeValue!(Dequal!T)(parser);
+	}
+	private static T deserializeValue(T, PT)(ref PT parser) @trusted
+		if (is(Dequal!T == T))
 	{	
 		alias TokenType = PT.TokenType;
 		void expect(TokenTypes...)() @safe
 		{
+			debug import std.conv : to;
 			switch (parser.current.type)
 			{
 				foreach (tp; TokenTypes)
@@ -438,7 +532,10 @@ final class JSONSerializationFormat : SerializationFormat
 						return;
 				}
 				default:
-					throw new Exception("Unexpected token!");// `" ~ to!string(parser.current.type) ~ "`!"); // TODO: Make more descriptive
+					debug
+						throw new Exception("Unexpected token! `" ~ to!string(parser.current.type) ~ "`!");
+					else
+						throw new Exception("Unexpected token!"); // TODO: Make more descriptive
 			}
 		}
 		
@@ -459,8 +556,15 @@ final class JSONSerializationFormat : SerializationFormat
 			parser.consume();
 			// TODO: Deal with Optional fields, and ensure all required fields
 			// have been deserialized.
-			while (parser.current.type == TokenType.String)
+			do
 			{
+				// TODO: Find a way to force this loop to be expanded into 2
+				//       blocks, the first without this check, the second with it.
+				// TODO: This currently allows for a comma to be the first token 
+				//       after starting an object, which is incorrect.
+				if (parser.current.type == TokenType.Comma)
+					parser.consume();
+
 				switch (parser.current.stringValue)
 				{
 					foreach (member; __traits(allMembers, T))
@@ -484,17 +588,22 @@ final class JSONSerializationFormat : SerializationFormat
 
 				// TODO: Make this invalid if it's the last property.
 			ExitSwitch:
-				if (parser.current.type == TokenType.Comma)
-					parser.consume();
-			}
+				continue;
+			} while (parser.current.type == TokenType.Comma);
 			expect!(TokenType.RCurl);
 			parser.consume();
 			return parsedValue;
 		}
 		else static if (isOneOf!(T, char, wchar, dchar))
 		{
-			static assert(0);
-			// Characters
+			import std.conv : to;
+			expect!(TokenType.String);
+			string strVal = parser.current.stringValue;
+			T val = getCharacter!T(strVal);
+			if (strVal.length != 0)
+				throw new Exception("Data still remaining after parsing a character!" ~ to!string(parser.current.stringValue.length));
+			parser.consume();
+			return val;
 		}
 		else static if (isOneOf!(T, byte, ubyte, short, ushort, int, uint, long, ulong/*, cent, ucent*/, float, double, real))
 		{
@@ -514,14 +623,54 @@ final class JSONSerializationFormat : SerializationFormat
 		}
 		else static if (isArray!T)
 		{
-			static assert(0);
 			static if (isOneOf!(ForeachType!T, char, wchar, dchar))
 			{
-				// String
+				import std.algorithm : canFind;
+				import std.conv : to;
+
+				expect!(TokenType.String);
+				string strVal = parser.current.stringValue;
+				T val;
+				// TODO: Account for strings that are part of a larger string, as well as strings that
+				//       can be unescaped in-place. Also look into using alloca to allocate the required
+				//       space on the stack for the intermediate string representation.
+				if (!strVal.canFind('\\'))
+					val = to!T(strVal);
+				else
+				{
+					dchar[] dst;
+					while (strVal.length > 0)
+					{
+						dst ~= getCharacter!dchar(strVal);
+					}
+
+					val = to!T(dst);
+				}
+
+				parser.consume();
+				return val;
 			}
 			else
 			{
-				// Normal Array
+				expect!(TokenType.LSquare);
+				parser.consume();
+
+				T arrVal;
+
+				do if (parser.current.type != TokenType.RSquare)
+				{
+					// TODO: See the note in object deserialization.
+					if (parser.current.type == TokenType.Comma)
+						parser.consume();
+
+					arrVal ~= deserializeValue!(ForeachType!T)(parser);
+				} while (parser.current.type == TokenType.Comma);
+
+
+				expect!(TokenType.RSquare);
+				parser.consume();
+
+				return arrVal;
 			}
 		}
 		else
@@ -535,6 +684,11 @@ final class JSONSerializationFormat : SerializationFormat
 
 		return deserializeValue!T(parser);
 	}
+}
+
+void toJSON(T, OR)(T val, ref OR buf) @safe
+{
+	JSONSerializationFormat.toJSON(buf, val);
 }
 
 string toJSON(T)(T val) @safe 
@@ -554,84 +708,124 @@ T fromJSON(T)(string val) @safe { return JSONSerializationFormat.fromJSON!T(val)
 	import std.serialization : nonSerialized, optional, serializeAs, serializable;
 
 	@serializable static class PrivateConstructor { private this() { } @optional int A = 3; int B = 5; }
-	static assert(!__traits(compiles, { assert(toJSON(new PrivateConstructor()) == `{"B":5}`); }), "A private constructor was allowed for a serializable class!");
+	static assert(!__traits(compiles, { assert(toJSON(new PrivateConstructor()) == `{"B":5}`); }), "A private constructor was allowed for a serializable class while attempting serialization!");
+	static assert(!__traits(compiles, { assert(fromJSON!PrivateConstructor(`{"B":5}`).B == 5); }), "A private constructor was allowed for a serializable class while attempting deserialization!");
 	
 	static class NonSerializable { @optional int A = 3; int B = 5; }
-	static assert(!__traits(compiles, { assert(toJSON(new NonSerializable()) == `{"B":5}`); }), "A class not marked with @serializable was allowed!");
+	static assert(!__traits(compiles, { assert(toJSON(new NonSerializable()) == `{"B":5}`); }), "A class not marked with @serializable was allowed while attempting serialization!");
+	static assert(!__traits(compiles, { assert(fromJSON!NonSerializable(`{"B":5}`).B == 5); }), "A class not marked with @serializable was allowed while attempting deserialization!");
 
 	@serializable static class OptionalField { @optional int A = 3; int B = 5; }
 	static assert(toJSON(new OptionalField()) == `{"B":5}`, "An optional field set to its default value was not excluded!");
+	static assert(() {
+		auto cfa = fromJSON!OptionalField(`{"B":5}`);
+		assert(cfa.A == 3);
+		assert(cfa.B == 5);
+		return true;
+	}(), "Failed to correctly deserialize a class with an optional field!");
 
 	@serializable static class NonSerializedField { int A = 3; @nonSerialized int B = 2; }
 	static assert(toJSON(new NonSerializedField()) == `{"A":3}`, "A field marked with @nonSerialized was included!");
+	static assert(fromJSON!NonSerializedField(`{"A":3}`).A == 3, "Failed to correctly deserialize a class when a field marked with @nonSerialized was present!");
 
 	@serializable static class SerializeAsField { int A = 3; @serializeAs(`D`) int B = 5; @nonSerialized int D = 7; }
 	static assert(toJSON(new SerializeAsField()) == `{"A":3,"D":5}`, "A field marked with @serializeAs(`D`) failed to serialize as D!");
+	static assert(() {
+		auto cfa = fromJSON!SerializeAsField(`{"A":3,"D":5}`);
+		assert(cfa.A == 3);
+		assert(cfa.B == 5);
+		assert(cfa.D == 7);
+		return true;
+	}(), "Failed to correctly deserialize a class when a field marked with @serializeAs was present!");
 
 	@serializable static class ByteField { byte A = -3; }
 	static assert(toJSON(new ByteField()) == `{"A":-3}`, "Failed to correctly serialize a byte field!");
+	static assert(fromJSON!ByteField(`{"A":-3}`).A == -3, "Failed to correctly deserialize a byte field!");
 
 	@serializable static class UByteField { ubyte A = 159; }
 	static assert(toJSON(new UByteField()) == `{"A":159}`, "Failed to correctly serialize a ubyte field!");
+	static assert(fromJSON!UByteField(`{"A":159}`).A == 159, "Failed to correctly deserialize a ubyte field!");
 
 	@serializable static class ShortField { short A = -26125; }
 	static assert(toJSON(new ShortField()) == `{"A":-26125}`, "Failed to correctly serialize a short field!");
+	static assert(fromJSON!ShortField(`{"A":-26125}`).A == -26125, "Failed to correctly deserialize a short field!");
 
 	@serializable static class UShortField { ushort A = 65313; }
 	static assert(toJSON(new UShortField()) == `{"A":65313}`, "Failed to correctly serialize a ushort field!");
+	static assert(fromJSON!UShortField(`{"A":65313}`).A == 65313, "Failed to correctly deserialize a ushort field!");
 
 	@serializable static class IntField { int A = -2032534342; }
 	static assert(toJSON(new IntField()) == `{"A":-2032534342}`, "Failed to correctly serialize an int field!");
+	static assert(fromJSON!IntField(`{"A":-2032534342}`).A == -2032534342, "Failed to correctly deserialize an int field!");
 
 	@serializable static class UIntField { uint A = 2520041234; }
 	static assert(toJSON(new UIntField()) == `{"A":2520041234}`, "Failed to correctly serialize a uint field!");
+	static assert(fromJSON!UIntField(`{"A":2520041234}`).A == 2520041234, "Failed to correctly deserialize a uint field!");
 
 	@serializable static class LongField { long A = -2305393212345134623; }
 	static assert(toJSON(new LongField()) == `{"A":-2305393212345134623}`, "Failed to correctly serialize a long field!");
+	static assert(fromJSON!LongField(`{"A":-2305393212345134623}`).A == -2305393212345134623, "Failed to correctly deserialize a long field!");
 
 	@serializable static class ULongField { ulong A = 4021352154138321354; }
 	static assert(toJSON(new ULongField()) == `{"A":4021352154138321354}`, "Failed to correctly serialize a ulong field!");
+	static assert(fromJSON!ULongField(`{"A":4021352154138321354}`).A == 4021352154138321354, "Failed to correctly deserialize a ulong field!");
 
 	//@serializable static class CentField { cent A = -23932104152349231532145324134; }
 	//static assert(toJSON(new CentField()) == `{"A":-23932104152349231532145324134}`, "Failed to correctly serialize a cent field!");
+	//static assert(fromJSON!CentField(`{"A":-23932104152349231532145324134}`).A == -23932104152349231532145324134, "Failed to correctly deserialize a cent field!");
 
 	//@serializable static class UCentField { ucent A = 40532432168321451235829354323; }
 	//static assert(toJSON(new UCentField()) == `{"A":40532432168321451235829354323}`, "Failed to correctly serialize a ucent field!");
+	//static assert(fromJSON!UCentField(`{"A":40532432168321451235829354323}`).A == 40532432168321451235829354323, "Failed to correctly deserialize a ucent field!");
 
 	@serializable static class FloatField { float A = -433200; }
-	static assert(toJSON(new FloatField()) == `{"A":-433200}`, "Failed to correctly serialize a float field!");
+	// TODO: Make this static once float -> string conversion is possible in CTFE
+	assert(toJSON(new FloatField()) == `{"A":-433200}`, "Failed to correctly serialize a float field!");
+	static assert(fromJSON!FloatField(`{"A":-433200}`).A == -433200, "Failed to correctly deserialize a float field!");
 
 	@serializable static class DoubleField { double A = 3.25432e+53; }
-	static assert(toJSON(new DoubleField()) == `{"A":3.25432e+53}`, "Failed to correctly serialize a double field!");
+	// TODO: Make this static once double -> string conversion is possible in CTFE
+	assert(toJSON(new DoubleField()) == `{"A":3.25432e+53}`, "Failed to correctly serialize a double field!");
+	static assert(fromJSON!DoubleField(`{"A":3.25432e+53}`).A == 3.25432e+53, "Failed to correctly deserialize a double field!");
 
 	@serializable static class RealField { real A = -2.13954e+104; }
-	static assert(toJSON(new RealField()) == `{"A":-2.13954e+104}`, "Failed to correctly serialize a real field!");
+	// TODO: Make this static once real -> string conversion is possible in CTFE
+	assert(toJSON(new RealField()) == `{"A":-2.13954e+104}`, "Failed to correctly serialize a real field!");
+	static assert(fromJSON!RealField(`{"A":-2.13954e+104}`).A == -2.13954e+104, "Failed to correctly deserialize a real field!");
 
 	@serializable static class CharField { char A = '\x05'; }
 	static assert(toJSON(new CharField()) == `{"A":"\u0005"}`, "Failed to correctly serialize a char field!");
+	static assert(fromJSON!CharField(`{"A":"\u0005"}`).A == '\x05', "Failed to correctly deserialize a char field!");
 
 	@serializable static class WCharField { wchar A = '\u04DA'; }
 	static assert(toJSON(new WCharField()) == `{"A":"\u04DA"}`, "Failed to correctly serialize a wchar field!");
+	static assert(fromJSON!WCharField(`{"A":"\u04DA"}`).A == '\u04DA', "Failed to correctly deserialize a wchar field!");
 
 	@serializable static class DCharField { dchar A = '\U0010FFFF'; }
 	static assert(toJSON(new DCharField()) == `{"A":"\x0010FFFF"}`, "Failed to correctly serialize a dchar field!");
+	static assert(fromJSON!DCharField(`{"A":"\x0010FFFF"}`).A == '\U0010FFFF', "Failed to correctly deserialize a dchar field!");
 
 	@serializable static class StringField { string A = "Hello!\b\"\u08A8\U0010FFFF"; }
 	static assert(toJSON(new StringField()) == `{"A":"Hello!\b\"\u08A8\x0010FFFF"}`, "Failed to correctly serialize a string field!");
+	static assert(fromJSON!StringField(`{"A":"Hello!\b\"\u08A8\x0010FFFF"}`).A == "Hello!\b\"\u08A8\U0010FFFF", "Failed to correctly deserialize a string field!");
 
-	@serializable static class WStringField { wstring A = "Hello!\b\"\u08A8\U0010FFFF"; }
+	@serializable static class WStringField { wstring A = "Hello!\b\"\u08A8\U0010FFFF"w; }
 	static assert(toJSON(new WStringField()) == `{"A":"Hello!\b\"\u08A8\x0010FFFF"}`, "Failed to correctly serialize a wstring field!");
+	static assert(fromJSON!WStringField(`{"A":"Hello!\b\"\u08A8\x0010FFFF"}`).A == "Hello!\b\"\u08A8\U0010FFFF"w, "Failed to correctly deserialize a wstring field!");
 
 	() @trusted {
 		@serializable static class WCharArrayField { wchar[] A = cast(wchar[])"Hello!\b\"\u08A8\U0010FFFF"w; }
 		static assert(toJSON(new WCharArrayField()) == `{"A":"Hello!\b\"\u08A8\x0010FFFF"}`, "Failed to correctly serialize a wchar[] field!");
+		static assert(fromJSON!WCharArrayField(`{"A":"Hello!\b\"\u08A8\x0010FFFF"}`).A.equal(cast(wchar[])"Hello!\b\"\u08A8\U0010FFFF"w), "Failed to correctly deserialize a wchar[] field!");
 	}();
 
 	@serializable static class ConstWCharArrayField { const(wchar)[] A = "Hello!\b\"\u08A8\U0010FFFF"w; }
 	static assert(toJSON(new ConstWCharArrayField()) == `{"A":"Hello!\b\"\u08A8\x0010FFFF"}`, "Failed to correctly serialize a const(wchar)[] field!");
+	static assert(fromJSON!ConstWCharArrayField(`{"A":"Hello!\b\"\u08A8\x0010FFFF"}`).A.equal("Hello!\b\"\u08A8\U0010FFFF"w), "Failed to correctly deserialize a const(wchar)[] field!");
 
 	@serializable static class DStringField { dstring A = "Hello!\b\"\u08A8\U0010FFFF"d; }
 	static assert(toJSON(new DStringField()) == `{"A":"Hello!\b\"\u08A8\x0010FFFF"}`, "Failed to correctly serialize a dstring field!");
+	static assert(fromJSON!DStringField(`{"A":"Hello!\b\"\u08A8\x0010FFFF"}`).A == "Hello!\b\"\u08A8\U0010FFFF"d, "Failed to correctly deserialize a dstring field!");
 
 	@serializable static class FalseBoolField { bool A; auto Init() { A = false; return this; } }
 	static assert(toJSON((new FalseBoolField()).Init()) == `{"A":false}`, "Failed to correctly serialize a bool field set to false!");
@@ -652,14 +846,26 @@ T fromJSON(T)(string val) @safe { return JSONSerializationFormat.fromJSON!T(val)
 		assert(cfa.A);
 		assert(cfa.A.A == 3);
 		assert(cfa.A.B == 5);
+		assert(cfa.A.D == 7);
 		return true;
 	}(), "Failed to correctly deserialize a class field!");
 
 	@serializable static class ClassArrayField { SerializeAsField[] A = [new SerializeAsField(), new SerializeAsField()]; }
 	static assert(toJSON(new ClassArrayField()) == `{"A":[{"A":3,"D":5},{"A":3,"D":5}]}`, "Failed to correctly serialize a class array field!");
+	static assert(() {
+		auto cfa = fromJSON!ClassArrayField(`{"A":[{"A":3,"D":5},{"A":3,"D":5}]}`);
+		assert(cfa.A);
+		assert(cfa.A.length == 2);
+		assert(cfa.A[0].A == 3);
+		assert(cfa.A[0].B == 5);
+		assert(cfa.A[1].A == 3);
+		assert(cfa.A[1].B == 5);
+		return true;
+	}(), "Failed to correctly deserialize a class array field!");
 
 	@serializable static class IntArrayField { int[] A = [-3, 6, 190]; }
-	static assert(toJSON(new IntArrayField()) == `{"A":[-3,6,190]}`, "Failed to correctly serialize a int[] field!");
+	static assert(toJSON(new IntArrayField()) == `{"A":[-3,6,190]}`, "Failed to correctly serialize an int[] field!");
+	static assert(fromJSON!IntArrayField(`{"A":[-3,6,190]}`).A.equal([-3, 6, 190]), "Failed to correctly deserialize an int[] field!");
 
 
 }
