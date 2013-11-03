@@ -115,7 +115,7 @@ void main(string[] args)
 		swDeserialize.stop();
 	}
 
-	writefln("Took %s ms (%s ms / %s/sec) to serialize 100k SimpleObjects with an average payload of %s bytes (%s).", swSerialize.peek().msecs, cast(real)swSerialize.peek().msecs / ObjectCount, 354, cast(real)totalPayload / ObjectCount, totalPayload);
+	writefln("Took %s ms (%s ms / %s/sec) to serialize 100k SimpleObjects with an average payload of %s bytes (%s).", swSerialize.peek().msecs, cast(real)swSerialize.peek().msecs / ObjectCount, cast(real)ObjectCount * (1000.0 / swSerialize.peek().msecs), cast(real)totalPayload / ObjectCount, totalPayload);
 	writefln("Took %s ms (%s ms / %s/sec) to deserialize 100k SimpleObjects", swDeserialize.peek().msecs, cast(real)swDeserialize.peek().msecs / ObjectCount, cast(real)ObjectCount * (1000.0 / swDeserialize.peek().msecs));
 }
 
