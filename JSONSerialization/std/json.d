@@ -1,6 +1,6 @@
 module std.json;
 
-//version = MaxPerformance;
+version = MaxPerformance;
 
 import std.serialization : SerializationFormat;
 
@@ -142,12 +142,9 @@ final class JSONSerializationFormat : SerializationFormat
 		}
 		else static if (isOneOf!(T, byte, ubyte, short, ushort, int, uint, long, ulong/*, cent, ucent*/))
 		{
-			version (MaxPerformance)
-				import std.performance.conv : to;
-			else
-				import std.conv : to;
+			import std.performance.conv : to;
 
-			output.put(to!string(val));
+			val.to!string(output);
 		}
 		else static if (is(T == bool))
 		{

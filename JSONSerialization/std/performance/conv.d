@@ -1,72 +1,85 @@
 module std.performance.conv;
 
-import std.traitsExt : isOneOf;
+import std.ascii : LetterCase;
+import std.conv : ConvException, unsigned;
+import std.exception : enforce;
+import std.range : ElementEncodingType, isOutputRange;
+import std.traits : isIntegral, isSomeString, Unqual, Unsigned;
 
-
-T to(T : string, S)(S val)
-	if(isOneOf!(S, byte, short, int, long/*, cent*/))
+void to(T, S, OR)(S value, ref OR outputRange, uint radix = 10, LetterCase letterCase = LetterCase.upper) @trusted pure
+	if (isIntegral!S && isSomeString!T && !is(T == enum) && isOutputRange!(OR, T))
+in
 {
-	return toStringBody(cast(long)val);
+	assert(radix >= 2 && radix <= 36);
 }
-
-T to(T : string, S)(S val)
-	if (isOneOf!(S, ubyte, ushort, uint, ulong/*, ucent*/))
+body
 {
-	return toStringBody(cast(ulong)val);
-}
-
-private:
-
-string toStringBody(long val) @safe pure
-{
-	enum Min = short.min;
-	enum Max = short.max;
-	if (val < Min || val > Max)
+	alias EEType = Unqual!(ElementEncodingType!T);
+	// This is the maximum size of the smallest radix.
+	EEType[S.sizeof * 8] buffer = void;
+	
+	void toStringRadixConvert(uint radix = 0, bool neg = false)(uint runtimeRadix = 0)
 	{
-		static import std.conv;
+		static if (neg)
+			ulong div = void, mValue = unsigned(-value);
+		else
+			Unsigned!(Unqual!S) div = void, mValue = unsigned(value);
 		
-		return std.conv.to!string(val);
-	}
-	else
-	{
-		import std.performance.conv_integer_string_tables;
-		// If CTFE becomes a lot more effecient, and it is plausible to
-		// generate the table at compile time, do it.
-		//static immutable string[Max - Min + 1] conversionTable = () {
-		//	string[Max - Min + 1] ret;
-		//	foreach (i; Min..Max + 1)
-		//	{
-		//		ret[i + (0 - Min)] = std.conv.to!string(i);
-		//	}
-		//	return ret;
-		//}();
-		return signedStringConversionTable[cast(short)val + (0 - Min)];
-	}
-}
-
-string toStringBody(ulong val) @safe pure
-{
-	enum Min = ushort.min;
-	enum Max = ushort.max;
-	if (val < Min || val > Max)
-	{
-		static import std.conv;
+		size_t index = buffer.length;
+		char baseChar = letterCase == LetterCase.lower ? 'a' : 'A';
+		char mod = void;
 		
-		return std.conv.to!string(val);
+		do
+		{
+			static if (radix == 0)
+			{
+				div = cast(S)(mValue / runtimeRadix );
+				mod = cast(ubyte)(mValue % runtimeRadix);
+				mod += mod < 10 ? '0' : baseChar - 10;
+			}
+			else static if (radix > 10)
+			{
+				div = cast(S)(mValue / radix );
+				mod = cast(ubyte)(mValue % radix);
+				mod += mod < 10 ? '0' : baseChar - 10;
+			}
+			else
+			{
+				div = cast(S)(mValue / radix);
+				mod = mValue % radix + '0';
+			}
+			buffer[--index] = cast(char)mod;
+			mValue = div;
+		} while (mValue);
+		
+		static if (neg)
+		{
+			buffer[--index] = '-';
+		}
+		outputRange.put(cast(T)buffer[index..$]);
 	}
-	else
+	
+	enforce(radix >= 2 && radix <= 36, new ConvException("Radix error"));
+	
+	switch(radix)
 	{
-		import std.performance.conv_integer_string_tables;
-		// If CTFE becomes a lot more effecient, and it is plausible to
-		// generate the table at compile time, do it.
-		//static immutable string[Max - Min + 1] conversionTable = () {
-		//	string[Max - Min + 1] ret;
-		//	foreach (i; Min..Max + 1)
-		//	{
-		//		ret[i + (0 - Min)] = std.conv.to!string(i);
-		//	}
-		//	return ret;
-		//}();
-		return unsignedStringConversionTable[cast(short)val + (0 - Min)];
+		case 2:
+			toStringRadixConvert!2();
+			break;
+		case 8:
+			toStringRadixConvert!8();
+			break;
+		case 10:
+			if (value < 0)
+				toStringRadixConvert!(10, true)();
+			else
+				toStringRadixConvert!10();
+			break;
+		case 16:
+			toStringRadixConvert!16();
+			break;
+		default:
+			toStringRadixConvert(radix);
+			break;
 	}
 }

@@ -20,7 +20,6 @@
     <UnittestMode>false</UnittestMode>
     <ObjectsDirectory>obj\Debug</ObjectsDirectory>
     <DebugLevel>0</DebugLevel>
-    <ExtraLinkerArguments>/STACK:4194304</ExtraLinkerArguments>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
     <OutputPath>bin\Release</OutputPath>
@@ -30,8 +29,7 @@
     <UnittestMode>false</UnittestMode>
     <ObjectsDirectory>obj\Release</ObjectsDirectory>
     <DebugLevel>0</DebugLevel>
-    <ExtraCompilerArguments>-g -inline</ExtraCompilerArguments>
-    <ExtraLinkerArguments>/STACK:4194304</ExtraLinkerArguments>
+    <ExtraCompilerArguments>-g -inline -v</ExtraCompilerArguments>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Unittest|AnyCPU' ">
     <DebugSymbols>true</DebugSymbols>
@@ -42,7 +40,6 @@
     <UnittestMode>true</UnittestMode>
     <ObjectsDirectory>obj\Unittest</ObjectsDirectory>
     <DebugLevel>0</DebugLevel>
-    <ExtraLinkerArguments>/STACK:4194304</ExtraLinkerArguments>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="main.d" />
