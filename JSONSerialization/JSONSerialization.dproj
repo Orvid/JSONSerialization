@@ -30,7 +30,7 @@
     <UnittestMode>false</UnittestMode>
     <ObjectsDirectory>obj\Release</ObjectsDirectory>
     <DebugLevel>0</DebugLevel>
-    <ExtraCompilerArguments>-g</ExtraCompilerArguments>
+    <ExtraCompilerArguments>-g -inline</ExtraCompilerArguments>
     <ExtraLinkerArguments>/STACK:4194304</ExtraLinkerArguments>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Unittest|AnyCPU' ">
@@ -50,8 +50,12 @@
     <Compile Include="std\serialization.d" />
     <Compile Include="std\traitsExt.d" />
     <Compile Include="std\collections.d" />
+    <Compile Include="std\performance\conv.d" />
+    <Compile Include="std\performance\array.d" />
+    <Compile Include="std\performance\conv_integer_string_tables.d" />
   </ItemGroup>
   <ItemGroup>
     <Folder Include="std\" />
+    <Folder Include="std\performance\" />
   </ItemGroup>
 </Project>

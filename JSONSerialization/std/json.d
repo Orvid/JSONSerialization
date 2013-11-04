@@ -1,5 +1,7 @@
 module std.json;
 
+//version = MaxPerformance;
+
 import std.serialization : SerializationFormat;
 
 final class JSONSerializationFormat : SerializationFormat
@@ -34,7 +36,7 @@ final class JSONSerializationFormat : SerializationFormat
 		}
 	}
 
-	private static void putCharacter(R)(ref R range, dchar ch) @safe// pure
+	private static void putCharacter(R)(ref R range, dchar ch) @safe pure
 	{
 		import std.format : formattedWrite;
 
@@ -140,7 +142,10 @@ final class JSONSerializationFormat : SerializationFormat
 		}
 		else static if (isOneOf!(T, byte, ubyte, short, ushort, int, uint, long, ulong/*, cent, ucent*/))
 		{
-			import std.conv : to;
+			version (MaxPerformance)
+				import std.performance.conv : to;
+			else
+				import std.conv : to;
 
 			output.put(to!string(val));
 		}
@@ -556,7 +561,7 @@ final class JSONSerializationFormat : SerializationFormat
 			parser.consume();
 			// TODO: Deal with Optional fields, and ensure all required fields
 			// have been deserialized.
-			do
+			do if (parser.current.type != TokenType.RCurl)
 			{
 				// TODO: Find a way to force this loop to be expanded into 2
 				//       blocks, the first without this check, the second with it.
@@ -586,7 +591,6 @@ final class JSONSerializationFormat : SerializationFormat
 						throw new Exception("Unknown member '" ~ parser.current.stringValue ~ "'!");
 				}
 
-				// TODO: Make this invalid if it's the last property.
 			ExitSwitch:
 				continue;
 			} while (parser.current.type == TokenType.Comma);

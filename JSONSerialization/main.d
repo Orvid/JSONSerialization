@@ -5,61 +5,10 @@ import std.datetime : StopWatch;
 import std.serialization : serializable;
 import std.json : toJSON, fromJSON;
 import std.conv : to;
-import std.range : Appender, isOutputRange;
+import std.range : isOutputRange;
+import std.performance.array : Appender;
 
 enum ObjectCount = 100000;
-
-struct CustomStringRange
-{
-	private char[] mBuffer;
-	private size_t nextI = 0;
-
-	private void ensureSpace(size_t len) @safe pure nothrow
-	{
-		while (nextI + len >= mBuffer.length)
-			mBuffer.length = (mBuffer.length ? mBuffer.length : 1) << 1;
-	}
-
-	@property string data() @trusted pure
-	{
-		return cast(string)mBuffer[0..nextI].dup;
-	}
-
-	void clear() @safe pure nothrow
-	{
-		nextI = 0;
-		mBuffer[] = 0;
-	}
-
-	void put(string str) @safe pure nothrow
-	{
-		ensureSpace(str.length);
-		mBuffer[nextI..str.length + nextI] = str[0..$];
-		nextI += str.length;
-	}
-	
-	void put(char[] str) @safe pure nothrow
-	{
-		ensureSpace(str.length);
-		mBuffer[nextI..str.length + nextI] = str[0..$];
-		nextI += str.length;
-	}
-	
-	void put(const(char)[] str) @safe pure nothrow
-	{
-		ensureSpace(str.length);
-		mBuffer[nextI..str.length + nextI] = str[0..$];
-		nextI += str.length;
-	}
-
-	void put(char c) @safe pure nothrow
-	{
-		ensureSpace(1);
-		mBuffer[nextI] = c;
-		nextI++;
-	}
-}
-static assert(isOutputRange!(CustomStringRange, string));
 
 void main(string[] args)
 {
@@ -81,8 +30,8 @@ void main(string[] args)
 			auto scoreCount = uniform(0, 10);
 			for (auto i = 0; i < scoreCount; i++)
 			{
-				// This is a uniform random with a bias torward 0, to produce more realistic
-				// data as input.
+				// This is a uniform random with a uniform bias torward 0, to produce more realistic
+				// data as input. (as most data has a tendancy to group torwards 0)
 				so.scores ~= uniform(uniform(int.min, 0), uniform(0, int.max));
 			}
 			return so;
@@ -96,7 +45,7 @@ void main(string[] args)
 
 	size_t totalPayload = 0;
 	StopWatch swSerialize;
-	auto ret = CustomStringRange();
+	auto ret = Appender!string();
 	foreach (i, so; sourceArray)
 	{
 		swSerialize.start();
