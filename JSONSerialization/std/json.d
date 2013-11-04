@@ -20,20 +20,41 @@ final class JSONSerializationFormat : SerializationFormat
 		return fromJSON!T(cast(string)data); 
 	}
 
-	private static void putString(R, S)(ref R output, S str) @trusted// pure
+	private static void putString(R, S)(ref R output, S str) @trusted pure
 		if (!is(Dequal!S == S) && isOutputRange!(R, string))
 	{
 		putString(output, cast(Dequal!S)str);
 	}
-	private static void putString(R, S)(ref R output, S str) @safe// pure
+	private static void putString(R, S)(ref R output, S str) @safe pure
 		if (is(Dequal!S == S) && isOneOf!(ForeachType!S, char, wchar, dchar) && isOutputRange!(R, string))
 	{
-		// TODO: Decode each character individually so it properly supports the full UTF-32 range in UTF-8 strings.
-		//       That would allow us to remove the isOneOf constraint in this template's declaration.
-		foreach (dchar ch; str)
+		if (isAscii(str))
+		    output.put(str);
+		else
 		{
-			putCharacter(output, ch);
+			foreach (dchar ch; str)
+			{
+				putCharacter(output, ch);
+			}
 		}
+	}
+
+	private static bool isAscii(S)(S str) @safe pure nothrow
+	{
+		foreach (ch; str)
+		{
+			switch (ch)
+			{
+				case 0x20, 0x21:
+				case 0x23: .. case 0x2E:
+				case 0x30: .. case 0x5B:
+				case 0x5D: .. case 0x7E:
+					break;
+				default:
+					return false;
+			}
+		}
+		return true;
 	}
 
 	private static void putCharacter(R)(ref R range, dchar ch) @safe pure
@@ -636,16 +657,20 @@ final class JSONSerializationFormat : SerializationFormat
 				//       can be unescaped in-place. Also look into using alloca to allocate the required
 				//       space on the stack for the intermediate string representation.
 				if (!strVal.canFind('\\'))
+				{
 					val = to!T(strVal);
+				}
 				else
 				{
-					dchar[] dst;
+					dchar[] dst = new dchar[strVal.length];
+					size_t i;
 					while (strVal.length > 0)
 					{
-						dst ~= getCharacter!dchar(strVal);
+						dst[i] = getCharacter!dchar(strVal);
+						i++;
 					}
 
-					val = to!T(dst);
+					val = to!T(dst[0..i]);
 				}
 
 				parser.consume();
@@ -653,10 +678,12 @@ final class JSONSerializationFormat : SerializationFormat
 			}
 			else
 			{
+				import std.performance.array : Appender;
+
 				expect!(TokenType.LSquare);
 				parser.consume();
 
-				T arrVal;
+				T arrVal;// = Appender!T();
 
 				do if (parser.current.type != TokenType.RSquare)
 				{
@@ -676,7 +703,6 @@ final class JSONSerializationFormat : SerializationFormat
 		}
 		else
 			static assert(0, "Serializing the type '" ~ T.stringof ~ "' to JSON is not yet supported!");
-		return T.init;
 	}
 
 	static T fromJSON(T)(string val) @safe

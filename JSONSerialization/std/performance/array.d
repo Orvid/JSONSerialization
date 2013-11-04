@@ -1,48 +1,55 @@
 module std.performance.array;
 
 import std.range : isOutputRange;
+import std.traitsExt : Dequal;
 
-struct Appender(T : string)
+struct Appender(A : QE[], QE)
 {
-	private char[] mBuffer;
-	private size_t nextI = 0;
+	alias E = Dequal!QE;
+
+	private static class InnerData
+	{
+		E[] mBuffer;
+		size_t nextI = 0;
+	}
+	private InnerData mData = new InnerData();
 	
 	private void ensureSpace(size_t len) @safe pure nothrow
 	{
-		while (nextI + len >= mBuffer.length)
-			mBuffer.length = (mBuffer.length ? mBuffer.length : 1) << 1;
+		while (mData.nextI + len >= mData.mBuffer.length)
+			mData.mBuffer.length = (mData.mBuffer.length ? mData.mBuffer.length : 1) << 1;
 	}
 	
-	@property string data() @trusted pure
+	@property A data() @trusted pure
 	{
-		return cast(string)mBuffer[0..nextI].dup;
+		return cast(A)mData.mBuffer[0..mData.nextI].dup;
 	}
-	
+
 	void clear() @safe pure nothrow
 	{
-		nextI = 0;
-		mBuffer[] = 0;
+		mData.nextI = 0;
+		mData.mBuffer[] = E.init;
 	}
 	
-	void put(string str) @safe pure nothrow
+	void put(A str) @safe pure nothrow
 	{
 		ensureSpace(str.length);
-		mBuffer[nextI..str.length + nextI] = str[0..$];
-		nextI += str.length;
+		mData.mBuffer[mData.nextI..str.length + mData.nextI] = str[0..$];
+		mData.nextI += str.length;
 	}
 	
 	void put(C)(C[] str) @safe pure nothrow
 	{
 		ensureSpace(str.length);
-		mBuffer[nextI..str.length + nextI] = str[0..$];
-		nextI += str.length;
+		mData.mBuffer[mData.nextI..str.length + mData.nextI] = str[0..$];
+		mData.nextI += str.length;
 	}
 	
-	void put(char c) @safe pure nothrow
+	void put(E c) @safe pure nothrow
 	{
 		ensureSpace(1);
-		mBuffer[nextI] = c;
-		nextI++;
+		mData.mBuffer[mData.nextI] = c;
+		mData.nextI++;
 	}
 }
 static assert(isOutputRange!(Appender!string, string));

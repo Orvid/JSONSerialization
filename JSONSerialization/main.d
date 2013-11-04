@@ -1,6 +1,7 @@
 module main;
 
 import std.stdio;
+import std.array;
 import std.datetime : StopWatch;
 import std.serialization : serializable;
 import std.json : toJSON, fromJSON;

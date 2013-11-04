@@ -6,7 +6,7 @@ import std.exception : enforce;
 import std.range : ElementEncodingType, isOutputRange;
 import std.traits : isIntegral, isSomeString, Unqual, Unsigned;
 
-void to(T, S, OR)(S value, ref OR outputRange, uint radix = 10, LetterCase letterCase = LetterCase.upper) @trusted pure
+void to(T, S, OR)(S value, OR outputRange, uint radix = 10, LetterCase letterCase = LetterCase.upper) @trusted pure
 	if (isIntegral!S && isSomeString!T && !is(T == enum) && isOutputRange!(OR, T))
 in
 {
