@@ -49,7 +49,6 @@
     <Compile Include="std\collections.d" />
     <Compile Include="std\performance\conv.d" />
     <Compile Include="std\performance\array.d" />
-    <Compile Include="std\performance\conv_integer_string_tables.d" />
   </ItemGroup>
   <ItemGroup>
     <Folder Include="std\" />
