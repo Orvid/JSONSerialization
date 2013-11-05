@@ -7,193 +7,223 @@ import std.serialization : SerializationFormat;
 final class JSONSerializationFormat : SerializationFormat
 {
 	import std.range : isInputRange, isOutputRange;
-	import std.traits : ForeachType;
-	import std.traitsExt : Dequal, isOneOf;
+	import std.traits : ForeachType, isArray;
+	import std.traitsExt : Dequal, isClass, isOneOf;
 
-	// TODO: Unittest these 2 methods.
-	final override ubyte[] serialize(T)(T val) 
-	{
-		return cast(ubyte[])toJSON(val); 
-	}
+//	// TODO: Unittest these 2 methods.
+//	final override ubyte[] serialize(T)(T val) 
+//	{
+//		return cast(ubyte[])toJSON(val); 
+//	}
 	final override T deserialize(T)(ubyte[] data)
 	{
 		return fromJSON!T(cast(string)data); 
 	}
 
-	private static void putString(R, S)(ref R output, S str) @trusted pure
-		if (!is(Dequal!S == S) && isOutputRange!(R, string))
+	template isNativeSerializationSupported(T)
 	{
-		putString(output, cast(Dequal!S)str);
-	}
-	private static void putString(R, S)(ref R output, S str) @safe pure
-		if (is(Dequal!S == S) && isOneOf!(ForeachType!S, char, wchar, dchar) && isOutputRange!(R, string))
-	{
-		if (isAscii(str))
-		    output.put(str);
+		static if (is(Dequal!T == T))
+		{
+			enum isNativeSerializationSupported =
+				   (isSerializable!T && isClass!T)
+				|| isOneOf!(T, byte, ubyte, short, ushort, int, uint, long, ulong/*, cent, ucent*/)
+				|| isOneOf!(T, float, double, real)
+				|| is(T == bool)
+				|| isOneOf!(T, char, wchar, dchar)
+			;
+			static assert(isNativeSerializationSupported);
+		}
+		else static if (isNativeSerializationSupported!(Dequal!T))
+		{
+			enum isNativeSerializationSupported = true;
+			static assert(isNativeSerializationSupported);
+		}
+		else static if (isArray!T)
+		{
+			enum isNativeSerializationSupported = isNativeSerializationSupported!(ForeachType!T);
+			static assert(isNativeSerializationSupported);
+		}
 		else
 		{
-			foreach (dchar ch; str)
-			{
-				putCharacter(output, ch);
-			}
+			enum isNativeSerializationSupported = false;
+			static assert(isNativeSerializationSupported);
 		}
 	}
 
-	private static bool isAscii(S)(S str) @safe pure nothrow
+	// This overload is designed to reduce the number of times the serialization
+	// templates are instantiated. (and make the type checks within them much simpler)
+	static void serialize(Range, T)(ref Range output, T val) @trusted
+		if (!isNativeSerializationSupported!T && !is(Dequal!T == T) && isOutputRange!(Range, string))
 	{
-		foreach (ch; str)
-		{
-			switch (ch)
-			{
-				case 0x20, 0x21:
-				case 0x23: .. case 0x2E:
-				case 0x30: .. case 0x5B:
-				case 0x5D: .. case 0x7E:
-					break;
-				default:
-					return false;
-			}
-		}
-		return true;
+		return serialize(output, cast(Dequal!T)val);
+	}
+	static void serialize(Range, T)(ref Range output, T val) @trusted
+		if (!isNativeSerializationSupported!T && isOutputRange!(Range, string))
+	{
+		static assert(0, Format.stringof ~ " does not support serializing " ~ T.stringof ~ "s!");
 	}
 
-	private static void putCharacter(R)(ref R range, dchar ch) @safe pure
+	/// ditto
+	static void serialize(Range, T)(ref Range output, T val) @safe
+		if (isNativeSerializationSupported!T && isOutputRange!(Range, string) && isClass!T)
+	{
+		if (!val)
+			output.put("null");
+		else static if (is(T == Object))
+			output.put("{}");
+		else
+		{
+			ensureSerializable!T();
+			ensurePublicConstructor!T();
+			output.put('{');
+			size_t i = 0;
+			foreach (member; __traits(allMembers, T))
+			{
+				static if (shouldSerializeMember!(T, member))
+				{
+					import std.traitsExt : getMemberValue;
+					
+					if (!shouldSerializeValue!(T, member)(val))
+						continue;
+					if (i != 0)
+						output.put(',');
+					output.put(`"` ~ getFinalMemberName!(T, member) ~ `":`);
+					output.serialize(getMemberValue!member(val));
+					i++;
+				}
+			}
+			output.put('}');
+		}
+	}
+
+	/// ditto
+	static void serialize(Range, T)(ref Range output, T val) @safe
+		if (isNativeSerializationSupported!T && isOutputRange!(Range, string) && isOneOf!(T, byte, ubyte, short, ushort, int, uint, long, ulong/*, cent, ucent*/))
+	{
+		import std.performance.conv : to;
+		
+		val.to!string(output);
+	}
+
+	// TODO: When to!string(float | double | real) becomes safe, make this safe.
+	/// ditto
+	static void serialize(Range, T)(ref Range output, T val) @trusted
+		if (isNativeSerializationSupported!T && isOutputRange!(Range, string) && isOneOf!(T, float, double, real))
+	{
+		import std.conv : to;
+		
+		output.put(to!string(val));
+	}
+
+	/// ditto
+	static void serialize(Range, T)(ref Range output, T val) @safe pure nothrow
+		if (isNativeSerializationSupported!T && isOutputRange!(Range, string) && is(T == bool))
+	{
+		output.put(val ? "true" : "false");
+	}
+
+	/// ditto
+	static void serialize(Range, T)(ref Range outputRange, T val, bool writeQuotes = true) @safe
+		if (isNativeSerializationSupported!T && isOutputRange!(Range, string) && isOneOf!(T, char, wchar, dchar))
 	{
 		import std.format : formattedWrite;
-
-		switch (ch)
+		
+		if (writeQuotes)
+			outputRange.put('"');
+		switch (val)
 		{
 			case '"':
-				range.put(`\"`);
+				outputRange.put(`\"`);
 				break;
 			case '\\':
-				range.put("\\\\");
+				outputRange.put("\\\\");
 				break;
 			case '/':
-				range.put("\\/");
+				outputRange.put("\\/");
 				break;
 			case '\b':
-				range.put("\\b");
+				outputRange.put("\\b");
 				break;
 			case '\f':
-				range.put("\\f");
+				outputRange.put("\\f");
 				break;
 			case '\n':
-				range.put("\\n");
+				outputRange.put("\\n");
 				break;
 			case '\r':
-				range.put("\\r");
+				outputRange.put("\\r");
 				break;
 			case '\t':
-				range.put("\\t");
+				outputRange.put("\\t");
 				break;
 			case 0x20, 0x21:
 			case 0x23: .. case 0x2E:
 			case 0x30: .. case 0x5B:
 			case 0x5D: .. case 0x7E:
-				range.put(cast(char)ch);
+				outputRange.put(cast(char)val);
 				break;
 			default:
-				if (ch <= 0xFFFF)
-					formattedWrite(range, "\\u%04X", cast(ushort)ch);
+				if (val <= 0xFFFF)
+					formattedWrite(outputRange, "\\u%04X", cast(ushort)val);
 				else
 					// NOTE: This is non-standard behaviour, but allows us to (de)serialize dchars.
-					formattedWrite(range, "\\x%08X", cast(uint)ch);
+					formattedWrite(outputRange, "\\x%08X", cast(uint)val);
 				break;
 		}
+		if (writeQuotes)
+			outputRange.put('"');
 	}
 
-	static void toJSON(Range, T)(ref Range output, T val) @trusted
-		if (!is(Dequal!T == T) && isOutputRange!(Range, string))
+	/// ditto
+	static void serialize(Range, T)(ref Range output, T val) @safe pure
+		if (isNativeSerializationSupported!T && isOutputRange!(Range, string) && isArray!T && isOneOf!(ForeachType!T, char, wchar, dchar))
 	{
-		return toJSON(output, cast(Dequal!T)val);
-	}
-	// TODO: When to!string(float | double | real) becomes safe, remove this.
-	static void toJSON(Range, T)(ref Range output, T val) @trusted
-		if (is(Dequal!T == T) && isOneOf!(T, float, double, real) && isOutputRange!(Range, string))
-	{
-		import std.conv : to;
-
-		output.put(to!string(val));
-	}
-	// The overload above is designed to reduce the number of times this
-	// template is instantiated.
-	static void toJSON(Range, T)(ref Range output, T val) @safe
-		if (is(Dequal!T == T) && !isOneOf!(T, float, double, real) && isOutputRange!(Range, string))
-	{
-		import std.traits : isArray;
-		import std.traitsExt : isClass;
-
-		static if (isClass!T)
+		static bool isAscii(S)(S str) @safe pure nothrow
 		{
-			if (!val)
-				output.put("null");
-			else static if (is(T == Object))
-				output.put("{}");
-			else
+			foreach (ch; str)
 			{
-				ensureSerializable!T();
-				ensurePublicConstructor!T();
-				output.put('{');
-				size_t i = 0;
-				foreach (member; __traits(allMembers, T))
+				switch (ch)
 				{
-					static if (shouldSerializeMember!(T, member))
-					{
-						import std.traitsExt : getMemberValue;
-
-						if (!shouldSerializeValue!(T, member)(val))
-							continue;
-						if (i != 0)
-							output.put(',');
-						output.put(`"` ~ getFinalMemberName!(T, member) ~ `":`);
-						toJSON(output, getMemberValue!member(val));
-						i++;
-					}
+					case 0x20, 0x21:
+					case 0x23: .. case 0x2E:
+					case 0x30: .. case 0x5B:
+					case 0x5D: .. case 0x7E:
+						break;
+					default:
+						return false;
 				}
-				output.put('}');
 			}
+			return true;
 		}
-		else static if (isOneOf!(T, char, wchar, dchar))
-		{
-			// NOTE: This may need to change as JSON doesn't support the full UTF8 range in strings by default.
-			output.put('"');
-			putCharacter(output, val);
-			output.put('"');
-		}
-		else static if (isOneOf!(T, byte, ubyte, short, ushort, int, uint, long, ulong/*, cent, ucent*/))
-		{
-			import std.performance.conv : to;
 
-			val.to!string(output);
-		}
-		else static if (is(T == bool))
-		{
-			output.put(val ? "true" : "false");
-		}
-		else static if (isArray!T)
-		{
-			static if (isOneOf!(ForeachType!T, char, wchar, dchar))
-			{
-				output.put('"');
-				putString(output, val);
-				output.put('"');
-			}
-			else
-			{
-				output.put('[');
-				foreach(i, v; val)
-				{
-					if (i != 0)
-						output.put(',');
-					toJSON(output, v);
-				}
-				output.put(']');
-			}
-		}
+		output.put('"');
+		if (isAscii(val))
+			output.put(val);
 		else
-			static assert(0, "Serializing the type '" ~ T.stringof ~ "' to JSON is not yet supported!");
+		{
+			foreach (dchar ch; val)
+			{
+				serialize(output, ch, false);
+			}
+		}
+		output.put('"');
 	}
+
+	/// ditto
+	static void serialize(Range, T)(ref Range output, T val) @safe
+		if (isNativeSerializationSupported!T && isOutputRange!(Range, string) && isArray!T && !isOneOf!(ForeachType!T, char, wchar, dchar))
+	{
+		output.put('[');
+		foreach(i, v; val)
+		{
+			if (i != 0)
+				output.put(',');
+			output.serialize(v);
+		}
+		output.put(']');
+	}
+
+
 
 	private static struct JSONLexer(Range)
 		if (is(Range == string))
@@ -702,7 +732,7 @@ final class JSONSerializationFormat : SerializationFormat
 			}
 		}
 		else
-			static assert(0, "Serializing the type '" ~ T.stringof ~ "' to JSON is not yet supported!");
+			static assert(0, "Deserializing the type '" ~ T.stringof ~ "' to JSON is not yet supported!");
 	}
 
 	static T fromJSON(T)(string val) @safe
@@ -715,15 +745,15 @@ final class JSONSerializationFormat : SerializationFormat
 
 void toJSON(T, OR)(T val, ref OR buf) @safe
 {
-	JSONSerializationFormat.toJSON(buf, val);
+	JSONSerializationFormat.serialize(buf, val);
 }
 
 string toJSON(T)(T val) @safe 
 {
-	import std.range : Appender;
+	import std.performance.array : Appender;
 
 	auto ret = Appender!string();
-	JSONSerializationFormat.toJSON(ret, val);
+	JSONSerializationFormat.serialize(ret, val);
 	return ret.data;
 }
 T fromJSON(T)(string val) @safe { return JSONSerializationFormat.fromJSON!T(val); }

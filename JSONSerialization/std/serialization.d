@@ -19,6 +19,14 @@ abstract class SerializationFormat
 		memberHasAttribute
 	;
 
+	protected template isSerializable(T)
+	{
+		import std.traits : isBuiltinType;
+		static if (isBuiltinType!T)
+			enum isSerializable = true;
+		else
+			enum isSerializable = hasAttribute!(T, serializable) || is(Dequal!T == Object);
+	}
 	protected static void ensureSerializable(T)() @safe pure nothrow
 	{
 		static if (isClass!T)
@@ -54,16 +62,8 @@ abstract class SerializationFormat
 	{
 		enum getFinalMemberName = memberHasAttribute!(T, member, serializeAs) ? getMemberAttribute!(T, member, serializeAs).Name : member;
 	}
-	
-	
-	static ubyte[] serialize(T)(T val) @safe
-		if (!is(Dequal!T == T))
-	{
-		return serialize(cast(Dequal!T)val); 
-	}
-	// The overload above is designed to reduce the number of times this
-	// template is instantiated.
-	abstract ubyte[] serialize(T)(T val) @safe
-		if (is(Dequal!T == T));
+
+
+	abstract ubyte[] serialize(T)(T val);
 	abstract T deserialize(T)(ubyte[] data);
 }
