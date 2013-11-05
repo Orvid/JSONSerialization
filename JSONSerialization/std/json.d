@@ -24,43 +24,25 @@ final class JSONSerializationFormat : SerializationFormat
 	{
 		static if (is(Dequal!T == T))
 		{
-			enum isNativeSerializationSupported =
-				   (isSerializable!T && isClass!T)
-				|| isOneOf!(T, byte, ubyte, short, ushort, int, uint, long, ulong/*, cent, ucent*/)
-				|| isOneOf!(T, float, double, real)
-				|| is(T == bool)
-				|| isOneOf!(T, char, wchar, dchar)
-			;
-			static assert(isNativeSerializationSupported);
-		}
-		else static if (isNativeSerializationSupported!(Dequal!T))
-		{
-			enum isNativeSerializationSupported = true;
-			static assert(isNativeSerializationSupported);
-		}
-		else static if (isArray!T)
-		{
-			enum isNativeSerializationSupported = isNativeSerializationSupported!(ForeachType!T);
-			static assert(isNativeSerializationSupported);
+			static if (isArray!T)
+			{
+				enum isNativeSerializationSupported = isNativeSerializationSupported!(ForeachType!T);
+			}
+			else
+			{
+				enum isNativeSerializationSupported =
+					   (isSerializable!T && isClass!T)
+					|| isOneOf!(T, byte, ubyte, short, ushort, int, uint, long, ulong/*, cent, ucent*/)
+					|| isOneOf!(T, float, double, real)
+					|| is(T == bool)
+					|| isOneOf!(T, char, wchar, dchar)
+				;
+			}
 		}
 		else
 		{
 			enum isNativeSerializationSupported = false;
-			static assert(isNativeSerializationSupported);
 		}
-	}
-
-	// This overload is designed to reduce the number of times the serialization
-	// templates are instantiated. (and make the type checks within them much simpler)
-	static void serialize(Range, T)(ref Range output, T val) @trusted
-		if (!isNativeSerializationSupported!T && !is(Dequal!T == T) && isOutputRange!(Range, string))
-	{
-		return serialize(output, cast(Dequal!T)val);
-	}
-	static void serialize(Range, T)(ref Range output, T val) @trusted
-		if (!isNativeSerializationSupported!T && isOutputRange!(Range, string))
-	{
-		static assert(0, Format.stringof ~ " does not support serializing " ~ T.stringof ~ "s!");
 	}
 
 	/// ditto
@@ -88,7 +70,7 @@ final class JSONSerializationFormat : SerializationFormat
 					if (i != 0)
 						output.put(',');
 					output.put(`"` ~ getFinalMemberName!(T, member) ~ `":`);
-					output.serialize(getMemberValue!member(val));
+					serialize(output, getMemberValue!member(val));
 					i++;
 				}
 			}
@@ -178,6 +160,8 @@ final class JSONSerializationFormat : SerializationFormat
 	static void serialize(Range, T)(ref Range output, T val) @safe pure
 		if (isNativeSerializationSupported!T && isOutputRange!(Range, string) && isArray!T && isOneOf!(ForeachType!T, char, wchar, dchar))
 	{
+		import std.performance.conv : to;
+
 		static bool isAscii(S)(S str) @safe pure nothrow
 		{
 			foreach (ch; str)
@@ -198,7 +182,7 @@ final class JSONSerializationFormat : SerializationFormat
 
 		output.put('"');
 		if (isAscii(val))
-			output.put(val);
+			output.put(to!string(val));
 		else
 		{
 			foreach (dchar ch; val)
@@ -218,7 +202,7 @@ final class JSONSerializationFormat : SerializationFormat
 		{
 			if (i != 0)
 				output.put(',');
-			output.serialize(v);
+			serialize(output, v);
 		}
 		output.put(']');
 	}
@@ -753,6 +737,7 @@ string toJSON(T)(T val) @safe
 	import std.performance.array : Appender;
 
 	auto ret = Appender!string();
+	//ret.clear();
 	JSONSerializationFormat.serialize(ret, val);
 	return ret.data;
 }
@@ -782,6 +767,7 @@ T fromJSON(T)(string val) @safe { return JSONSerializationFormat.fromJSON!T(val)
 	}(), "Failed to correctly deserialize a class with an optional field!");
 
 	@serializable static class NonSerializedField { int A = 3; @nonSerialized int B = 2; }
+	//static assert(0, toJSON(new NonSerializedField()));
 	static assert(toJSON(new NonSerializedField()) == `{"A":3}`, "A field marked with @nonSerialized was included!");
 	static assert(fromJSON!NonSerializedField(`{"A":3}`).A == 3, "Failed to correctly deserialize a class when a field marked with @nonSerialized was present!");
 

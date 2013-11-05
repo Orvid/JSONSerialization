@@ -5,6 +5,21 @@ import std.conv : ConvException, unsigned;
 import std.exception : enforce;
 import std.range : ElementEncodingType, isOutputRange;
 import std.traits : isIntegral, isSomeString, Unqual, Unsigned;
+import std.traitsExt : Dequal;
+
+T to(T, S)(S value) @trusted pure nothrow
+	if (is(Dequal!T == Dequal!S))
+{
+	return cast(T)value;
+}
+
+T to(T, S)(S value)
+	if (!is(Dequal!T == Dequal!S))
+{
+	import std.conv : to;
+
+	return to!T(value);
+}
 
 void to(T, S, OR)(S value, OR outputRange, uint radix = 10, LetterCase letterCase = LetterCase.upper) @trusted pure
 	if (isIntegral!S && isSomeString!T && !is(T == enum) && isOutputRange!(OR, T))
