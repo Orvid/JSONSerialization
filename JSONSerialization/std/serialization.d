@@ -63,18 +63,22 @@ abstract class SerializationFormat
 		enum getFinalMemberName = memberHasAttribute!(T, member, serializeAs) ? getMemberAttribute!(T, member, serializeAs).Name : member;
 	}
 
-	
-	// This overload is designed to reduce the number of times the serialization
-	// templates are instantiated. (and make the type checks within them much simpler)
-	static void serialize(this Format, Range, T)(ref Range output, T val) @trusted
-		if (!Format.isNativeSerializationSupported!T && !is(Dequal!T == T) && isOutputRange!(Range, string))
+	template BaseMembers()
 	{
-		return serialize(output, cast(Dequal!T)val);
-	}
-	static void serialize(this Format, Range, T)(ref Range output, T val) @trusted
-		if (!Format.isNativeSerializationSupported!T && is(Dequal!T == T) && isOutputRange!(Range, string))
-	{
-		static assert(0, Format.stringof ~ " does not support serializing " ~ T.stringof ~ "s!");
+		enum BaseMembers = q{
+			// This overload is designed to reduce the number of times the serialization
+			// templates are instantiated. (and make the type checks within them much simpler)
+			static void serialize(Range, T)(ref Range output, T val) @trusted
+				if (!isNativeSerializationSupported!T && !is(Dequal!T == T) && isOutputRange!(Range, string))
+			{
+				return serialize(output, cast(Dequal!T)val);
+			}
+			static void serialize(Range, T)(ref Range output, T val) @trusted
+				if (!isNativeSerializationSupported!T && is(Dequal!T == T) && isOutputRange!(Range, string))
+			{
+				static assert(0, typeof(this).stringof ~ " does not support serializing " ~ T.stringof ~ "s!");
+			}
+		};
 	}
 
 

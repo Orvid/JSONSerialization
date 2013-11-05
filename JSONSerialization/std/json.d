@@ -45,6 +45,9 @@ final class JSONSerializationFormat : SerializationFormat
 		}
 	}
 
+	// TODO: Why must D be a pain at times....
+	mixin(BaseMembers!());
+
 	/// ditto
 	static void serialize(Range, T)(ref Range output, T val) @safe
 		if (isNativeSerializationSupported!T && isOutputRange!(Range, string) && isClass!T)
