@@ -2,13 +2,14 @@ module std.json;
 
 version = MaxPerformance;
 
+import std.range : isOutputRange;
 import std.serialization : SerializationFormat;
 
 final class JSONSerializationFormat : SerializationFormat
 {
-	import std.range : isInputRange, isOutputRange;
+	import std.range : isInputRange;
 	import std.traits : ForeachType, isArray;
-	import std.traitsExt : Dequal, isClass, isOneOf;
+	import std.traitsExt : constructDefault, Dequal, isClass, isStruct, isOneOf;
 
 //	// TODO: Unittest these 2 methods.
 //	final override ubyte[] serialize(T)(T val) 
@@ -28,16 +29,19 @@ final class JSONSerializationFormat : SerializationFormat
 			{
 				enum isNativeSerializationSupported = isNativeSerializationSupported!(ForeachType!T);
 			}
-			else
+			else static if (isSerializable!T)
 			{
 				enum isNativeSerializationSupported =
-					   (isSerializable!T && isClass!T)
+					   isClass!T
+					|| isStruct!T
 					|| isOneOf!(T, byte, ubyte, short, ushort, int, uint, long, ulong/*, cent, ucent*/)
 					|| isOneOf!(T, float, double, real)
 					|| is(T == bool)
 					|| isOneOf!(T, char, wchar, dchar)
 				;
 			}
+			else
+				enum isNativeSerializationSupported = false;
 		}
 		else
 		{
@@ -50,35 +54,40 @@ final class JSONSerializationFormat : SerializationFormat
 
 	/// ditto
 	static void serialize(Range, T)(ref Range output, T val) @safe
-		if (isNativeSerializationSupported!T && isOutputRange!(Range, string) && isClass!T)
+		if (isNativeSerializationSupported!T && isOutputRange!(Range, string) && (isClass!T || isStruct!T))
 	{
-		if (!val)
-			output.put("null");
-		else static if (is(T == Object))
-			output.put("{}");
-		else
+		static if (isClass!T)
 		{
-			ensureSerializable!T();
-			ensurePublicConstructor!T();
-			output.put('{');
-			size_t i = 0;
-			foreach (member; __traits(allMembers, T))
+			if (!val)
 			{
-				static if (shouldSerializeMember!(T, member))
-				{
-					import std.traitsExt : getMemberValue;
-					
-					if (!shouldSerializeValue!(T, member)(val))
-						continue;
-					if (i != 0)
-						output.put(',');
-					output.put(`"` ~ getFinalMemberName!(T, member) ~ `":`);
-					serialize(output, getMemberValue!member(val));
-					i++;
-				}
+				output.put("null");
+				return;
 			}
-			output.put('}');
+			else static if (is(T == Object))
+			{
+				output.put("{}");
+				return;
+			}
 		}
+		ensurePublicConstructor!T();
+		output.put('{');
+		size_t i = 0;
+		foreach (member; __traits(allMembers, T))
+		{
+			static if (shouldSerializeMember!(T, member))
+			{
+				import std.traitsExt : getMemberValue;
+				
+				if (!shouldSerializeValue!(T, member)(val))
+					continue;
+				if (i != 0)
+					output.put(',');
+				output.put(`"` ~ getFinalMemberName!(T, member) ~ `":`);
+				serialize(output, getMemberValue!member(val));
+				i++;
+			}
+		}
+		output.put('}');
 	}
 
 	/// ditto
@@ -212,7 +221,8 @@ final class JSONSerializationFormat : SerializationFormat
 
 
 
-	private static struct JSONLexer(Range)
+	// TODO: Implement the generic input range based version.
+	@deserializationContext private static struct JSONLexer(Range)
 		if (is(Range == string))
 	{
 		private enum State
@@ -268,6 +278,24 @@ final class JSONSerializationFormat : SerializationFormat
 		{
 			input = inRange;
 			consume();
+		}
+
+		void expect(TokenTypes...)() @safe
+		{
+			debug import std.conv : to;
+			switch (current.type)
+			{
+				foreach (tp; TokenTypes)
+				{
+					case tp:
+						return;
+				}
+				default:
+					debug
+						throw new Exception("Unexpected token! `" ~ to!string(current.type) ~ "`!");
+					else
+						throw new Exception("Unexpected token!"); // TODO: Make more descriptive
+			}
 		}
 
 		void consume() @safe pure
@@ -465,20 +493,19 @@ final class JSONSerializationFormat : SerializationFormat
 		}
 	}
 
-	private static C getCharacter(C, IR)(ref IR input) @safe pure
-		if (is(IR == string) && isOneOf!(C, char, wchar, dchar))
+	private static C getCharacter(C)(ref string input) @safe pure
+		if (isOneOf!(C, char, wchar, dchar))
 	in
 	{
 		assert(input.length > 0);
 	}
 	body
 	{
-		import std.conv : parse, to;
+		import std.conv : to;
 
 		size_t readLength = 0;
 		dchar decoded = '\0';
 
-		// TODO?: Add sanity check to ensure there are values in the input.
 		if (input[0] == '\\')
 		{
 			if (input.length < 2)
@@ -552,174 +579,172 @@ final class JSONSerializationFormat : SerializationFormat
 		return to!C(decoded);
 	}
 
+
 	private static T deserializeValue(T, PT)(ref PT parser) @trusted
-		if (!is(Dequal!T == T))
+		if (isNativeSerializationSupported!T && (isClass!T || isStruct!T))
 	{
-		return cast(T)deserializeValue!(Dequal!T)(parser);
-	}
-	private static T deserializeValue(T, PT)(ref PT parser) @trusted
-		if (is(Dequal!T == T))
-	{	
 		alias TokenType = PT.TokenType;
-		void expect(TokenTypes...)() @safe
+
+		if (parser.current.type == TokenType.Null)
 		{
-			debug import std.conv : to;
-			switch (parser.current.type)
+			parser.consume();
+			return T.init;
+		}
+		ensurePublicConstructor!T();
+		T parsedValue = constructDefault!T();
+		bool first = true;
+		parser.expect!(TokenType.LCurl);
+		parser.consume();
+		// TODO: Deal with Optional fields, and ensure all required fields
+		// have been deserialized.
+		do if (parser.current.type != TokenType.RCurl)
+		{
+			if (!first && parser.current.type == TokenType.Comma)
+				parser.consume();
+			
+			switch (parser.current.stringValue)
 			{
-				foreach (tp; TokenTypes)
+				foreach (member; __traits(allMembers, T))
 				{
-					case tp:
-						return;
+					static if (shouldSerializeMember!(T, member))
+					{
+						import std.traitsExt : MemberType, setMemberValue;
+						
+						case getFinalMemberName!(T, member):
+							parser.consume();
+							parser.expect!(TokenType.Colon);
+							parser.consume();
+							setMemberValue!member(parsedValue, deserializeValue!(MemberType!(T, member))(parser));
+							goto ExitSwitch;
+					}
 				}
+				
 				default:
-					debug
-						throw new Exception("Unexpected token! `" ~ to!string(parser.current.type) ~ "`!");
-					else
-						throw new Exception("Unexpected token!"); // TODO: Make more descriptive
+					throw new Exception("Unknown member '" ~ parser.current.stringValue ~ "'!");
 			}
-		}
+			
+		ExitSwitch:
+			first = false;
+			continue;
+		} while (parser.current.type == TokenType.Comma);
+		parser.expect!(TokenType.RCurl);
+		parser.consume();
+		return parsedValue;
+	}
+
+	private static T deserializeValue(T, PT)(ref PT parser) @trusted
+		if (isNativeSerializationSupported!T && isOneOf!(T, char, wchar, dchar))
+	{
+		alias TokenType = PT.TokenType;
+
+		parser.expect!(TokenType.String);
+		string strVal = parser.current.stringValue;
+		T val = getCharacter!T(strVal);
+		assert(strVal.length == 0, "Data still remaining after parsing a character!");
+		parser.consume();
+		return val;
+	}
+
+	// TODO: Make safe once float->string conversion is safe.
+	private static T deserializeValue(T, PT)(ref PT parser) @trusted
+		if (isNativeSerializationSupported!T && isOneOf!(T, float, double, real))
+	{
+		alias TokenType = PT.TokenType;
 		
-		import std.traits : isArray;
-		import std.traitsExt : isClass;
+		import std.conv : to;
+
+		parser.expect!(TokenType.Number);
+		T val = to!T(parser.current.stringValue);
+		parser.consume();
+		return val;
+	}
+
+	private static T deserializeValue(T, PT)(ref PT parser) @safe pure
+		if (isNativeSerializationSupported!T && isOneOf!(T, byte, ubyte, short, ushort, int, uint, long, ulong/*, cent, ucent*/))
+	{
+		alias TokenType = PT.TokenType;
+
+		import std.conv : to;
 		
-		static if (isClass!T)
+		parser.expect!(TokenType.Number);
+		T val = to!T(parser.current.stringValue);
+		parser.consume();
+		return val;
+	}
+	
+	private static T deserializeValue(T, PT)(ref PT parser) @safe pure
+		if (isNativeSerializationSupported!T && is(T == bool))
+	{
+		alias TokenType = PT.TokenType;
+
+		parser.expect!(TokenType.True, TokenType.False);
+		bool ret = parser.current.type == TokenType.True;
+		parser.consume();
+		return ret;
+	}
+
+	private static T deserializeValue(T, PT)(ref PT parser) @trusted
+		if (isNativeSerializationSupported!T && isArray!T && isOneOf!(ForeachType!T, char, wchar, dchar))
+	{
+		alias TokenType = PT.TokenType;
+
+		import std.algorithm : canFind;
+		import std.conv : to;
+		
+		parser.expect!(TokenType.String);
+		string strVal = parser.current.stringValue;
+		T val;
+		// TODO: Account for strings that are part of a larger string, as well as strings that
+		//       can be unescaped in-place. Also look into using alloca to allocate the required
+		//       space on the stack for the intermediate string representation.
+		if (!strVal.canFind('\\'))
 		{
-			if (parser.current.type == TokenType.Null)
-			{
-				parser.consume();
-				return null;
-			}
-			ensureSerializable!T();
-			ensurePublicConstructor!T();
-			T parsedValue = new T();// TODO: constructDefault!T;
-			expect!(TokenType.LCurl);
-			parser.consume();
-			// TODO: Deal with Optional fields, and ensure all required fields
-			// have been deserialized.
-			do if (parser.current.type != TokenType.RCurl)
-			{
-				// TODO: Find a way to force this loop to be expanded into 2
-				//       blocks, the first without this check, the second with it.
-				// TODO: This currently allows for a comma to be the first token 
-				//       after starting an object, which is incorrect.
-				if (parser.current.type == TokenType.Comma)
-					parser.consume();
-
-				switch (parser.current.stringValue)
-				{
-					foreach (member; __traits(allMembers, T))
-					{
-						static if (shouldSerializeMember!(T, member))
-						{
-							import std.traitsExt : MemberType, setMemberValue;
-
-							case getFinalMemberName!(T, member):
-								parser.consume();
-								expect!(TokenType.Colon);
-								parser.consume();
-								setMemberValue!member(parsedValue, deserializeValue!(MemberType!(T, member))(parser));
-								goto ExitSwitch;
-						}
-					}
-
-					default:
-						throw new Exception("Unknown member '" ~ parser.current.stringValue ~ "'!");
-				}
-
-			ExitSwitch:
-				continue;
-			} while (parser.current.type == TokenType.Comma);
-			expect!(TokenType.RCurl);
-			parser.consume();
-			return parsedValue;
-		}
-		else static if (isOneOf!(T, char, wchar, dchar))
-		{
-			import std.conv : to;
-			expect!(TokenType.String);
-			string strVal = parser.current.stringValue;
-			T val = getCharacter!T(strVal);
-			if (strVal.length != 0)
-				throw new Exception("Data still remaining after parsing a character!" ~ to!string(parser.current.stringValue.length));
-			parser.consume();
-			return val;
-		}
-		else static if (isOneOf!(T, byte, ubyte, short, ushort, int, uint, long, ulong/*, cent, ucent*/, float, double, real))
-		{
-			import std.conv : to;
-
-			expect!(TokenType.Number);
-			T val = to!T(parser.current.stringValue);
-			parser.consume();
-			return val;
-		}
-		else static if (is(T == bool))
-		{
-			expect!(TokenType.True, TokenType.False);
-			bool ret = parser.current.type == TokenType.True;
-			parser.consume();
-			return ret;
-		}
-		else static if (isArray!T)
-		{
-			static if (isOneOf!(ForeachType!T, char, wchar, dchar))
-			{
-				import std.algorithm : canFind;
-				import std.conv : to;
-
-				expect!(TokenType.String);
-				string strVal = parser.current.stringValue;
-				T val;
-				// TODO: Account for strings that are part of a larger string, as well as strings that
-				//       can be unescaped in-place. Also look into using alloca to allocate the required
-				//       space on the stack for the intermediate string representation.
-				if (!strVal.canFind('\\'))
-				{
-					val = to!T(strVal);
-				}
-				else
-				{
-					dchar[] dst = new dchar[strVal.length];
-					size_t i;
-					while (strVal.length > 0)
-					{
-						dst[i] = getCharacter!dchar(strVal);
-						i++;
-					}
-
-					val = to!T(dst[0..i]);
-				}
-
-				parser.consume();
-				return val;
-			}
-			else
-			{
-				import std.performance.array : Appender;
-
-				expect!(TokenType.LSquare);
-				parser.consume();
-
-				T arrVal;// = Appender!T();
-
-				do if (parser.current.type != TokenType.RSquare)
-				{
-					// TODO: See the note in object deserialization.
-					if (parser.current.type == TokenType.Comma)
-						parser.consume();
-
-					arrVal ~= deserializeValue!(ForeachType!T)(parser);
-				} while (parser.current.type == TokenType.Comma);
-
-
-				expect!(TokenType.RSquare);
-				parser.consume();
-
-				return arrVal;
-			}
+			val = to!T(strVal);
 		}
 		else
-			static assert(0, "Deserializing the type '" ~ T.stringof ~ "' to JSON is not yet supported!");
+		{
+			dchar[] dst = new dchar[strVal.length];
+			size_t i;
+			while (strVal.length > 0)
+			{
+				dst[i] = getCharacter!dchar(strVal);
+				i++;
+			}
+			
+			val = to!T(dst[0..i]);
+		}
+		
+		parser.consume();
+		return val;
+	}
+
+	private static T deserializeValue(T, PT)(ref PT parser) @safe
+		if (isNativeSerializationSupported!T && isArray!T && !isOneOf!(ForeachType!T, char, wchar, dchar))
+	{
+		alias TokenType = PT.TokenType;
+
+		import std.performance.array : Appender;
+		
+		parser.expect!(TokenType.LSquare);
+		parser.consume();
+		
+		T arrVal;// = Appender!T();
+		bool first = true;
+		
+		do if (parser.current.type != TokenType.RSquare)
+		{
+			if (!first && parser.current.type == TokenType.Comma)
+				parser.consume();
+			
+			arrVal ~= deserializeValue!(ForeachType!T)(parser);
+			first = false;
+		} while (parser.current.type == TokenType.Comma);
+		
+		
+		parser.expect!(TokenType.RSquare);
+		parser.consume();
+		
+		return arrVal;
 	}
 
 	static T fromJSON(T)(string val) @safe
@@ -731,6 +756,7 @@ final class JSONSerializationFormat : SerializationFormat
 }
 
 void toJSON(T, OR)(T val, ref OR buf) @safe
+	if (isOutputRange!(OR, string))
 {
 	JSONSerializationFormat.serialize(buf, val);
 }
@@ -740,11 +766,13 @@ string toJSON(T)(T val) @safe
 	import std.performance.array : Appender;
 
 	auto ret = Appender!string();
-	//ret.clear();
 	JSONSerializationFormat.serialize(ret, val);
 	return ret.data;
 }
-T fromJSON(T)(string val) @safe { return JSONSerializationFormat.fromJSON!T(val); }
+T fromJSON(T)(string val) @safe 
+{
+	return JSONSerializationFormat.fromJSON!T(val); 
+}
 
 @safe unittest
 {
@@ -770,7 +798,6 @@ T fromJSON(T)(string val) @safe { return JSONSerializationFormat.fromJSON!T(val)
 	}(), "Failed to correctly deserialize a class with an optional field!");
 
 	@serializable static class NonSerializedField { int A = 3; @nonSerialized int B = 2; }
-	//static assert(0, toJSON(new NonSerializedField()));
 	static assert(toJSON(new NonSerializedField()) == `{"A":3}`, "A field marked with @nonSerialized was included!");
 	static assert(fromJSON!NonSerializedField(`{"A":3}`).A == 3, "Failed to correctly deserialize a class when a field marked with @nonSerialized was present!");
 
@@ -913,7 +940,31 @@ T fromJSON(T)(string val) @safe { return JSONSerializationFormat.fromJSON!T(val)
 	static assert(toJSON(new IntArrayField()) == `{"A":[-3,6,190]}`, "Failed to correctly serialize an int[] field!");
 	static assert(fromJSON!IntArrayField(`{"A":[-3,6,190]}`).A.equal([-3, 6, 190]), "Failed to correctly deserialize an int[] field!");
 
+	@serializable static struct StructParent { int A = 3; }
+	static assert(StructParent().toJSON() == `{"A":3}`, "Failed to correctly serialize a structure!");
+	static assert(fromJSON!StructParent(`{"A":3}`).A == 3, "Failed to correctly deserialize a structure!");
 
+	@serializable static struct StructField { StructParent A; }
+	static assert(StructField().toJSON() == `{"A":{"A":3}}`, "Failed to correctly serialize a struct field!");
+	static assert(fromJSON!StructField(`{"A":{"A":4}}`).A.A == 4, "Failed to correctly deserialize a struct field!");
+
+	static class ParsableClass 
+	{
+		import std.conv : to;
+
+		int A = 3;
+
+		override string toString() @safe pure { return to!string(A); }
+		static typeof(this) parse(string str) @safe pure
+		{
+			auto p = new ParsableClass();
+			p.A = to!int(str);
+			return p;
+		}
+	}
+	@serializable static class ParsableClassField { ParsableClass A = new ParsableClass(); }
+	static assert(new ParsableClassField().toJSON() == `{"A":"3"}`, "Failed to correctly serialize a non-serializable parsable class!");
+	static assert(fromJSON!ParsableClassField(`{"A":"5"}`).A.A == 5, "Failed to correctly deserialize a non-serializable parsable class!");
 }
 
 version (none)

@@ -21,6 +21,27 @@ template isClass(T)
 	static assert(!isClass!(typeof(AFunction)), "Failed to determine that AFunction is not a class!");
 }
 
+template isStruct(T)
+{
+	enum bool isStruct = is(T == struct);
+}
+@safe pure nothrow unittest
+{
+	class AClass { }
+	interface AnInterface { }
+	struct AStruct { }
+	union AUnion { }
+	enum AnEnum;
+	void AFunction() { }
+
+	static assert(!isStruct!AClass, "Failed to determine that AClass is not a struct!");
+	static assert(!isStruct!AnInterface, "Failed to determine that AnInterface is not a struct!");
+	static assert(isStruct!AStruct, "Failed to determine that AStruct is a struct!");
+	static assert(!isStruct!AUnion, "Failed to determine that AUnion is not a struct!");
+	static assert(!isStruct!AnEnum, "Failed to determine that AnEnum is not a struct!");
+	static assert(!isStruct!(typeof(AFunction)), "Failed to determine that AFunction is not a struct!");
+}
+
 template isFunction(T)
 {
 	enum bool isFunction = is(T == function);
@@ -283,6 +304,15 @@ template isMemberField(T, string member)
 	static assert(hasPublicDefaultConstructor!NonZeroParameterCountWithDefault, "Failed to determine that a class with a public constructor with one parameter with a default value has a public default constructor!");
 }
 
+@property T constructDefault(T)()
+	if (hasPublicDefaultConstructor!T)
+{
+	static if (isClass!T)
+		return new T();
+	else
+		return T();
+}
+
 @property auto getMemberValue(string member, T)(T val) @safe pure nothrow
 {
 	return __traits(getMember, val, member);
@@ -293,23 +323,17 @@ template isMemberField(T, string member)
 	mixin(`parent.` ~ member ~ ` = val;`);
 }
 
-template MemberType(T, string member)
-{
-	alias MemberType = typeof(getDefaultMemberValue!(T, member));
-}
+alias MemberType(T, string member) = typeof(getDefaultMemberValue!(T, member));
 
 @property auto getDefaultMemberValue(T, string member)()
 	if (hasPublicDefaultConstructor!T)
 {
-	static if (is(T == struct))
-		return __traits(getMember, T(), member);
-	else
-		return __traits(getMember, new T(), member);
+	return __traits(getMember, constructDefault!T, member);
 }
 
-@property AttributeType getMemberAttribute(T, string member, AttributeType)() @safe pure nothrow
+@property AttributeType getMemberAttribute(T, string member, AttributeType)() @safe nothrow
 {
-	foreach (at; __traits(getAttributes, __traits(getMember, T.init, member)))
+	foreach (at; __traits(getAttributes, __traits(getMember, T, member)))
 	{
 		static if (is(at == AttributeType) || is(typeof(at) == AttributeType))
 			return at;
@@ -317,9 +341,9 @@ template MemberType(T, string member)
 	return AttributeType.init;
 }
 
-@property bool memberHasAttribute(T, string member, AttributeType)() @safe pure nothrow
+@property bool memberHasAttribute(T, string member, AttributeType)() @safe nothrow
 {
-	foreach (at; __traits(getAttributes, __traits(getMember, T.init, member)))
+	foreach (at; __traits(getAttributes, __traits(getMember, T, member)))
 	{
 		static if (is(at == AttributeType) || is(typeof(at) == AttributeType))
 			return true;
