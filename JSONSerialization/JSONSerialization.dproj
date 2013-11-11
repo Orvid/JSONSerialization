@@ -49,6 +49,7 @@
     <Compile Include="std\collections.d" />
     <Compile Include="std\performance\conv.d" />
     <Compile Include="std\performance\array.d" />
+    <Compile Include="std\performance\bitmanip.d" />
   </ItemGroup>
   <ItemGroup>
     <Folder Include="std\" />

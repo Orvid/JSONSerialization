@@ -21,8 +21,63 @@ abstract class SerializationFormat
 	;
 
 protected:
-	enum deserializationContext;
+	static struct SerializedFieldSet(T)
+	{
+		import std.performance.bitmanip : BitArray;
 
+		alias members = membersToSerialize!T;
+		// BUG: Required due to a bug that causes compilation to fail
+		enum membersLength = members.length;
+
+		mixin(genDeclarations());
+		private static string genDeclarations()
+		{
+			import std.conv : to;
+			import std.performance.array : Appender;
+
+			auto ret = Appender!string();
+
+			ret.put(`BitArray!`);
+			ret.put(to!string(membersLength));
+			ret.put(` fieldMarkers;`);
+
+			BitArray!membersLength expectedArr;
+			foreach (i, m; members)
+			{
+				if (!isMemberOptional!(T, m))
+					expectedArr[i] = true;
+			}
+			ret.put(`enum expectedFields = BitArray!`);
+			ret.put(to!string(membersLength));
+			ret.put(`([`);
+			foreach (i, d; expectedArr.data)
+			{
+				if (i != 0)
+					ret.put(',');
+				ret.put(`0x`);
+				ret.put(to!string(d, 16));
+			}
+			ret.put(`]);`);
+
+			return ret.data;
+		}
+
+		@property void markSerialized(string member)() @safe pure nothrow
+		{
+			import std.typecons : staticIndexOf;
+
+			fieldMarkers[staticIndexOf!(member, members)] = true;
+		}
+
+		void ensureFullySerialized() @safe pure
+		{
+			fieldMarkers &= expectedFields;
+			if (fieldMarkers != expectedFields)
+				throw new Exception("A required field was not deserialized!");
+		}
+	}
+
+	enum deserializationContext;
 	enum isDeserializationContext(T) = hasAttribute!(T, deserializationContext);
 
 	template isSerializable(T)
@@ -46,12 +101,38 @@ protected:
 		else
 			static assert(0, "Not yet implemented!");
 	}
+	
+	template membersToSerialize(T)
+	{
+		alias CTValSet(E...) = E;
+		enum shouldSerializeMember(string member) = member != "this" && isMemberField!(T, member) && !memberHasAttribute!(T, member, nonSerialized);
 
-	enum shouldSerializeMember(T, string member) = member != "this" && isMemberField!(T, member) && !memberHasAttribute!(T, member, nonSerialized);
+		// TODO: This needs to deal with inherited members that have the same name.
+		template membersToSerializeImpl(T, Members...)
+		{
+			static if (Members.length > 1)
+			{
+				static if (shouldSerializeMember!(Members[0]))
+					alias membersToSerializeImpl = CTValSet!(Members[0], membersToSerializeImpl!(T, Members[1..$]));
+				else
+					alias membersToSerializeImpl = membersToSerializeImpl!(T, Members[1..$]);
+			}
+			else
+			{
+				static if (shouldSerializeMember!(Members[0]))
+					alias membersToSerializeImpl = CTValSet!(Members[0]);
+				else
+					alias membersToSerializeImpl = CTValSet!();
+			}
+		}
+		alias membersToSerialize = membersToSerializeImpl!(T, __traits(allMembers, T));
+	}
+
+	enum isMemberOptional(T, string member) = memberHasAttribute!(T, member, optional);
 	
 	static bool shouldSerializeValue(T, string member)(T val) @safe pure nothrow
 	{
-		static if (memberHasAttribute!(T, member, optional))
+		static if (isMemberOptional!(T, member))
 		{
 			if (getDefaultMemberValue!(T, member) == getMemberValue!member(val))
 				return false;
@@ -77,9 +158,7 @@ protected:
 				static if (__traits(compiles, (cast(T)T.init).toString()) && __traits(compiles, T.parse("")))
 				{
 					// TODO: Support using an output range here as well.
-					output.put('"');
-					output.put(val.toString());
-					output.put('"');
+					serialize(output, val.toString());
 				}
 				else
 					static assert(0, typeof(this).stringof ~ " does not support serializing " ~ T.stringof ~ "s!");

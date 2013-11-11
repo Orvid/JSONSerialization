@@ -72,20 +72,17 @@ final class JSONSerializationFormat : SerializationFormat
 		ensurePublicConstructor!T();
 		output.put('{');
 		size_t i = 0;
-		foreach (member; __traits(allMembers, T))
+		foreach (member; membersToSerialize!T)
 		{
-			static if (shouldSerializeMember!(T, member))
-			{
-				import std.traitsExt : getMemberValue;
-				
-				if (!shouldSerializeValue!(T, member)(val))
-					continue;
-				if (i != 0)
-					output.put(',');
-				output.put(`"` ~ getFinalMemberName!(T, member) ~ `":`);
-				serialize(output, getMemberValue!member(val));
-				i++;
-			}
+			import std.traitsExt : getMemberValue;
+			
+			if (!shouldSerializeValue!(T, member)(val))
+				continue;
+			if (i != 0)
+				output.put(',');
+			output.put(`"` ~ getFinalMemberName!(T, member) ~ `":`);
+			serialize(output, getMemberValue!member(val));
+			i++;
 		}
 		output.put('}');
 	}
@@ -592,31 +589,31 @@ final class JSONSerializationFormat : SerializationFormat
 		}
 		ensurePublicConstructor!T();
 		T parsedValue = constructDefault!T();
+		auto serializedFields = SerializedFieldSet!T();
 		bool first = true;
 		parser.expect!(TokenType.LCurl);
 		parser.consume();
 		// TODO: Deal with Optional fields, and ensure all required fields
 		// have been deserialized.
-		do if (parser.current.type != TokenType.RCurl)
+		if (parser.current.type != TokenType.RCurl) do
 		{
 			if (!first && parser.current.type == TokenType.Comma)
 				parser.consume();
-			
+
+			parser.expect!(TokenType.String);
 			switch (parser.current.stringValue)
 			{
-				foreach (member; __traits(allMembers, T))
+				foreach (member; membersToSerialize!T)
 				{
-					static if (shouldSerializeMember!(T, member))
-					{
-						import std.traitsExt : MemberType, setMemberValue;
-						
-						case getFinalMemberName!(T, member):
-							parser.consume();
-							parser.expect!(TokenType.Colon);
-							parser.consume();
-							setMemberValue!member(parsedValue, deserializeValue!(MemberType!(T, member))(parser));
-							goto ExitSwitch;
-					}
+					import std.traitsExt : MemberType, setMemberValue;
+					
+					case getFinalMemberName!(T, member):
+						parser.consume();
+						parser.expect!(TokenType.Colon);
+						parser.consume();
+						setMemberValue!member(parsedValue, deserializeValue!(MemberType!(T, member))(parser));
+						serializedFields.markSerialized!(member);
+						goto ExitSwitch;
 				}
 				
 				default:
@@ -629,6 +626,8 @@ final class JSONSerializationFormat : SerializationFormat
 		} while (parser.current.type == TokenType.Comma);
 		parser.expect!(TokenType.RCurl);
 		parser.consume();
+
+		serializedFields.ensureFullySerialized();
 		return parsedValue;
 	}
 
@@ -730,8 +729,8 @@ final class JSONSerializationFormat : SerializationFormat
 		
 		T arrVal;// = Appender!T();
 		bool first = true;
-		
-		do if (parser.current.type != TokenType.RSquare)
+
+		if (parser.current.type != TokenType.RSquare) do
 		{
 			if (!first && parser.current.type == TokenType.Comma)
 				parser.consume();
