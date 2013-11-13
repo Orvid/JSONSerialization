@@ -40,11 +40,18 @@ import std.traitsExt : Dequal;
 		mData.mBuffer[] = E.init;
 	}
 	
-	void put(QE[] arr) @safe pure nothrow
+	void put(QE[] arr) @trusted pure nothrow
 	{
 		ensureCreated();
 		ensureSpace(arr.length);
-		mData.mBuffer[mData.nextI..arr.length + mData.nextI] = arr[0..$];
+		// This is required due to a compiler bug somewhere.....
+		if (__ctfe && !is(E == char))
+		{
+			for (auto i = mData.nextI, i2 = 0; i < arr.length + mData.nextI; i++, i2++)
+				mData.mBuffer[i] = arr[i2];
+		}
+		else
+			mData.mBuffer[mData.nextI..arr.length + mData.nextI] = cast(E[])arr[];
 		mData.nextI += arr.length;
 	}
 

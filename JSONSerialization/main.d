@@ -11,8 +11,20 @@ import std.performance.array : Appender;
 
 enum ObjectCount = 100000;
 
+string justForMixin(T, E)()
+{
+	T arrA;
+	arrA.length = 500;
+	E[] arrB;
+	arrB.length = 500;
+	arrA[0..$] = arrB[0..$];
+	return "int it;";
+}
+
 void main(string[] args)
 {
+	mixin(justForMixin!(ubyte[], ubyte)());
+
 	@serializable static final class SimpleObject
 	{
 		int id;

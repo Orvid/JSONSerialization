@@ -13,47 +13,37 @@ struct BinaryOutputRange(OR)
 	import std.traitsExt : Dequal, isOneOf;
 
 private:
-	import std.performance.array : Appender;
-	OR* mInnerRange;
+	OR mInnerRange;
 
 	// TODO: Support big endian output.
 	version(BigEndian)
 		static assert(0, "Support for a big-endian host still needs to be added!");
-	void ensureCreated()
-	{
-		if (!mInnerRange)
-			mInnerRange = new OR();
-	}
 
 public:
 	@property OR innerRange()
 	{
-		return *mInnerRange;
+		return mInnerRange;
 	}
 
 	this(OR init)
 	{
-		mInnerRange = new OR();
-		*mInnerRange = init;
+		mInnerRange = init;
 	}
 
-	auto opDispatch(string s)() @trusted
+	auto opDispatch(string s, Args...)(Args a) @trusted
 	{
-		ensureCreated();
-		mixin("return mInnerRange." ~ s ~ ";");
+		mixin("return mInnerRange." ~ s ~ "(a);");
 	}
 
-	void put(C)(C[] str) @trusted
+	void put(C)(C[] arr) @trusted
 		if (isScalarType!C)
 	{
-		ensureCreated();
-		mInnerRange.put(cast(ubyte[])str);
+		mInnerRange.put(cast(ubyte[])arr);
 	}
 
 	void put(C)(C c) @trusted
 		if (isScalarType!C)
 	{
-		ensureCreated();
 		if (__ctfe)
 		{
 			for (size_t i = 0; i < C.sizeof; i++)
@@ -112,7 +102,7 @@ protected:
 		private static string genDeclarations()
 		{
 			import std.conv : to;
-			import std.performance.array : Appender;
+			import std.array : Appender;
 
 			auto ret = Appender!string();
 

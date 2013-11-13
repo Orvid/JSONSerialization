@@ -770,8 +770,8 @@ void toJSON(T, OR)(T val, ref OR buf) @safe
 //		import std.stdio;
 //		writeln(cast(string)bor.data);
 //		writeln(cast(string)buf.data);
+//		assert(0);
 //	}();
-//	assert(0);
 }
 
 string toJSON(T)(T val) @trusted 
