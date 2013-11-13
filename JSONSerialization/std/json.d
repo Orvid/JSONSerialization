@@ -766,12 +766,6 @@ void toJSON(T, OR)(T val, ref OR buf) @safe
 	auto bor = BinaryOutputRange!OR(buf);
 	JSONSerializationFormat.InnerFunStuff!(OR).serialize(bor, val);
 	buf = bor.innerRange;
-//	() @trusted {
-//		import std.stdio;
-//		writeln(cast(string)bor.data);
-//		writeln(cast(string)buf.data);
-//		assert(0);
-//	}();
 }
 
 string toJSON(T)(T val) @trusted 
