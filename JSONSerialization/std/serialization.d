@@ -5,6 +5,85 @@ enum serializable;
 enum nonSerialized;
 struct serializeAs { string Name; }
 
+import std.range : isOutputRange;
+struct BinaryOutputRange(OR)
+	if (isOutputRange!(OR, ubyte[]))
+{
+	import std.traits : isScalarType;
+	import std.traitsExt : Dequal, isOneOf;
+
+private:
+	import std.performance.array : Appender;
+	OR* mInnerRange;
+
+	// TODO: Support big endian output.
+	version(BigEndian)
+		static assert(0, "Support for a big-endian host still needs to be added!");
+	void ensureCreated()
+	{
+		if (!mInnerRange)
+			mInnerRange = new OR();
+	}
+
+public:
+	@property OR innerRange()
+	{
+		return *mInnerRange;
+	}
+
+	this(OR init)
+	{
+		mInnerRange = new OR();
+		*mInnerRange = init;
+	}
+
+	auto opDispatch(string s)() @trusted
+	{
+		ensureCreated();
+		mixin("return mInnerRange." ~ s ~ ";");
+	}
+
+	void put(C)(C[] str) @trusted
+		if (isScalarType!C)
+	{
+		ensureCreated();
+		mInnerRange.put(cast(ubyte[])str);
+	}
+
+	void put(C)(C c) @trusted
+		if (isScalarType!C)
+	{
+		ensureCreated();
+		if (__ctfe)
+		{
+			for (size_t i = 0; i < C.sizeof; i++)
+				mInnerRange.put(cast(ubyte)((c >> (i * 8)) & 0xFF));
+		}
+		else
+		{
+			mInnerRange.put(cast(ubyte[])(&c)[0..C.sizeof]);
+		}
+	}
+}
+unittest
+{
+	import std.performance.array : Appender;
+	import std.range : isOutputRange;
+
+	static assert(isOutputRange!(BinaryOutputRange!(Appender!(ubyte[])), string));
+	static assert(isOutputRange!(BinaryOutputRange!(Appender!(ubyte[])), wstring));
+	static assert(isOutputRange!(BinaryOutputRange!(Appender!(ubyte[])), dstring));
+	static assert(isOutputRange!(BinaryOutputRange!(Appender!(ubyte[])), byte[]));
+	static assert(isOutputRange!(BinaryOutputRange!(Appender!(ubyte[])), ubyte[]));
+	static assert(isOutputRange!(BinaryOutputRange!(Appender!(ubyte[])), short[]));
+	static assert(isOutputRange!(BinaryOutputRange!(Appender!(ubyte[])), ushort[]));
+	static assert(isOutputRange!(BinaryOutputRange!(Appender!(ubyte[])), int[]));
+	static assert(isOutputRange!(BinaryOutputRange!(Appender!(ubyte[])), uint[]));
+	static assert(isOutputRange!(BinaryOutputRange!(Appender!(ubyte[])), long[]));
+	static assert(isOutputRange!(BinaryOutputRange!(Appender!(ubyte[])), ulong[]));
+}
+
+
 abstract class SerializationFormat
 {
 	import std.traitsExt : 
@@ -141,19 +220,19 @@ protected:
 	}
 	enum getFinalMemberName(T, string member) = memberHasAttribute!(T, member, serializeAs) ? getMemberAttribute!(T, member, serializeAs).Name : member;
 
-	template BaseMembers()
+	template BaseSerializationMembers()
 	{
-		enum BaseMembers = q{
+		enum BaseSerializationMembers = q{
 			// This overload is designed to reduce the number of times the serialization
 			// templates are instantiated. (and make the type checks within them much simpler)
-			static void serialize(Range, T)(ref Range output, T val) @trusted
-				if (!isNativeSerializationSupported!T && !is(Dequal!T == T) && isOutputRange!(Range, string))
+			static void serialize(T)(ref BinaryOutputRange!OR output, T val) @trusted
+				if (!isNativeSerializationSupported!T && !is(Dequal!T == T))
 			{
 				return serialize(output, cast(Dequal!T)val);
 			}
 
-			static void serialize(Range, T)(ref Range output, T val) @trusted
-				if (!isNativeSerializationSupported!T && is(Dequal!T == T) && isOutputRange!(Range, string))
+			static void serialize(T)(ref BinaryOutputRange!OR output, T val) @trusted
+				if (!isNativeSerializationSupported!T && is(Dequal!T == T))
 			{
 				static if (__traits(compiles, (cast(T)T.init).toString()) && __traits(compiles, T.parse("")))
 				{
@@ -163,15 +242,19 @@ protected:
 				else
 					static assert(0, typeof(this).stringof ~ " does not support serializing " ~ T.stringof ~ "s!");
 			}
+		};
+	}
 
+	template BaseDeserializationMembers()
+	{
+		enum BaseDeserializationMembers = q{
 
-			
 			static T deserializeValue(T, PT)(ref PT ctx) @trusted
 				if (!isNativeSerializationSupported!T && !is(Dequal!T == T) && isDeserializationContext!PT)
 			{
 				return cast(T)deserializeValue!(Dequal!T)(ctx);
 			}
-
+			
 			static T deserializeValue(T, PT)(ref PT ctx) @safe
 				if (!isNativeSerializationSupported!T && is(Dequal!T == T) && isDeserializationContext!PT)
 			{

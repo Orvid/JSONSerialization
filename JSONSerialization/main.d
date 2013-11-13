@@ -46,14 +46,14 @@ void main(string[] args)
 
 	size_t totalPayload = 0;
 	StopWatch swSerialize;
-	auto ret = Appender!string();
+	auto ret = Appender!(ubyte[])();
 	foreach (i, so; sourceArray)
 	{
 		swSerialize.start();
 		toJSON(so, ret);
 		swSerialize.stop();
-		totalPayload += ret.data.length;
-		stringArray[i] = ret.data;
+		stringArray[i] = cast(string)ret.data;
+		totalPayload += stringArray[i].length;
 		ret.clear();
 	}
 

@@ -40,28 +40,40 @@ import std.traitsExt : Dequal;
 		mData.mBuffer[] = E.init;
 	}
 	
-	void put(A str) @safe pure nothrow
+	void put(QE[] arr) @safe pure nothrow
 	{
 		ensureCreated();
-		ensureSpace(str.length);
-		mData.mBuffer[mData.nextI..str.length + mData.nextI] = str[0..$];
-		mData.nextI += str.length;
+		ensureSpace(arr.length);
+		mData.mBuffer[mData.nextI..arr.length + mData.nextI] = arr[0..$];
+		mData.nextI += arr.length;
 	}
 
-	void put(E)(E[] str) @safe pure nothrow
-	{
-		ensureCreated();
-		ensureSpace(str.length);
-		mData.mBuffer[mData.nextI..str.length + mData.nextI] = str[0..$];
-		mData.nextI += str.length;
-	}
-	
-	void put(E c) @safe pure nothrow
+	void put(QE e) @safe pure nothrow
 	{
 		ensureCreated();
 		ensureSpace(1);
-		mData.mBuffer[mData.nextI] = c;
+		mData.mBuffer[mData.nextI] = e;
 		mData.nextI++;
+	}
+
+	static if (!is(QE == E))
+	{
+		void put(E[] arr) @safe pure nothrow
+		{
+			ensureCreated();
+			ensureSpace(arr.length);
+			mData.mBuffer[mData.nextI..arr.length + mData.nextI] = arr[0..$];
+			mData.nextI += arr.length;
+		}
+
+		void put(E e) @safe pure nothrow
+		{
+			ensureCreated();
+			ensureSpace(1);
+			mData.mBuffer[mData.nextI] = e;
+			mData.nextI++;
+		}
 	}
 }
 static assert(isOutputRange!(Appender!string, string));
+static assert(isOutputRange!(Appender!(ubyte[]), ubyte[]));
