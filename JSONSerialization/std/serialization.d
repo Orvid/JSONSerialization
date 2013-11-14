@@ -10,7 +10,6 @@ struct BinaryOutputRange(OR)
 	if (isOutputRange!(OR, ubyte[]))
 {
 	import std.traits : isScalarType;
-	import std.traitsExt : Dequal, isOneOf;
 
 private:
 	OR mInnerRange;
@@ -44,14 +43,21 @@ public:
 	void put(C)(C c) @trusted
 		if (isScalarType!C)
 	{
-		if (__ctfe)
+		static if (C.sizeof == 1)
 		{
-			for (size_t i = 0; i < C.sizeof; i++)
-				mInnerRange.put(cast(ubyte)((c >> (i * 8)) & 0xFF));
+			mInnerRange.put(cast(ubyte)c);
 		}
 		else
 		{
-			mInnerRange.put(cast(ubyte[])(&c)[0..C.sizeof]);
+			if (__ctfe)
+			{
+				for (size_t i = 0; i < C.sizeof; i++)
+					mInnerRange.put(cast(ubyte)((c >> (i * 8)) & 0xFF));
+			}
+			else
+			{
+				mInnerRange.put(cast(ubyte[])(&c)[0..C.sizeof]);
+			}
 		}
 	}
 }
