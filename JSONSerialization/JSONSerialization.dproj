@@ -50,6 +50,7 @@
     <Compile Include="std\performance\conv.d" />
     <Compile Include="std\performance\array.d" />
     <Compile Include="std\performance\bitmanip.d" />
+    <Compile Include="std\performance\string.d" />
   </ItemGroup>
   <ItemGroup>
     <Folder Include="std\" />

@@ -9,7 +9,7 @@ import std.range : isOutputRange;
 struct BinaryOutputRange(OR)
 	if (isOutputRange!(OR, ubyte[]))
 {
-	import std.traits : isScalarType;
+	import std.traits : isIntegral, isSomeChar;
 
 private:
 	OR mInnerRange;
@@ -35,13 +35,13 @@ public:
 	}
 
 	void put(C)(C[] arr) @trusted
-		if (isScalarType!C)
+		if (isIntegral!C || isSomeChar!C)
 	{
 		mInnerRange.put(cast(ubyte[])arr);
 	}
 
 	void put(C)(C c) @trusted
-		if (isScalarType!C)
+		if (isIntegral!C || isSomeChar!C)
 	{
 		static if (C.sizeof == 1)
 		{
@@ -77,6 +77,9 @@ unittest
 	static assert(isOutputRange!(BinaryOutputRange!(Appender!(ubyte[])), uint[]));
 	static assert(isOutputRange!(BinaryOutputRange!(Appender!(ubyte[])), long[]));
 	static assert(isOutputRange!(BinaryOutputRange!(Appender!(ubyte[])), ulong[]));
+	static assert(!isOutputRange!(BinaryOutputRange!(Appender!(ubyte[])), float[]));
+	static assert(!isOutputRange!(BinaryOutputRange!(Appender!(ubyte[])), double[]));
+	static assert(!isOutputRange!(BinaryOutputRange!(Appender!(ubyte[])), real[]));
 }
 
 
@@ -215,7 +218,7 @@ protected:
 		return true;
 	}
 	enum getFinalMemberName(T, string member) = memberHasAttribute!(T, member, serializeAs) ? getMemberAttribute!(T, member, serializeAs).Name : member;
-
+	
 	template BaseSerializationMembers()
 	{
 		enum BaseSerializationMembers = q{
@@ -230,13 +233,23 @@ protected:
 			static void serialize(T)(ref BinaryOutputRange!OR output, T val) @trusted
 				if (!isNativeSerializationSupported!T && is(Dequal!T == T))
 			{
+				import std.traitsExt : isEnum;
+
+				// TODO: Figure out a way that this can be done without needing to
+				//       allocate a string for the value. Unfortunately this currently
+				//       is prevented by the need to process the actual string.
 				static if (__traits(compiles, (cast(T)T.init).toString()) && __traits(compiles, T.parse("")))
 				{
-					// TODO: Support using an output range here as well.
 					serialize(output, val.toString());
 				}
+				else static if (isEnum!T)
+				{
+					import std.conv : to;
+
+					serialize(output, to!string(val));
+				}
 				else
-					static assert(0, typeof(this).stringof ~ " does not support serializing " ~ T.stringof ~ "s!");
+					static assert(0, typeof(this).stringof ~ " does not support serializing a " ~ T.stringof ~ ", and the type does not implement parse and toString!");
 			}
 		};
 	}
@@ -244,7 +257,8 @@ protected:
 	template BaseDeserializationMembers()
 	{
 		enum BaseDeserializationMembers = q{
-
+			// This overload is designed to reduce the number of times the deserialization
+			// templates are instantiated. (and make the type checks within them much simpler)
 			static T deserializeValue(T, PT)(ref PT ctx) @trusted
 				if (!isNativeSerializationSupported!T && !is(Dequal!T == T) && isDeserializationContext!PT)
 			{
@@ -254,14 +268,24 @@ protected:
 			static T deserializeValue(T, PT)(ref PT ctx) @safe
 				if (!isNativeSerializationSupported!T && is(Dequal!T == T) && isDeserializationContext!PT)
 			{
+				import std.traitsExt : isEnum;
+
 				static if (__traits(compiles, (cast(T)T.init).toString()) && __traits(compiles, T.parse("")))
 				{
 					T v = T.parse(ctx.current.stringValue);
 					ctx.consume();
 					return v;
 				}
+				else static if (isEnum!T)
+				{
+					import std.conv : to;
+					
+					T v = to!T(ctx.current.stringValue);
+					ctx.consume();
+					return v;
+				}
 				else
-					static assert(0, typeof(this).stringof ~ " does not support deserializing " ~ T.stringof ~ "s!");
+					static assert(0, typeof(this).stringof ~ " does not support deserializing a " ~ T.stringof ~ ", and the type does not implement parse and toString!");
 			}
 		};
 	}

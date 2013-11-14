@@ -42,6 +42,24 @@ template isStruct(T)
 	static assert(!isStruct!(typeof(AFunction)), "Failed to determine that AFunction is not a struct!");
 }
 
+enum isEnum(T) = is(T == enum);
+@safe pure nothrow unittest
+{
+	class AClass { }
+	interface AnInterface { }
+	struct AStruct { }
+	union AUnion { }
+	enum AnEnum;
+	void AFunction() { }
+	
+	static assert(!isEnum!AClass, "Failed to determine that AClass is not an enum!");
+	static assert(!isEnum!AnInterface, "Failed to determine that AnInterface is not an enum!");
+	static assert(!isEnum!AStruct, "Failed to determine that AStruct is an enum!");
+	static assert(!isEnum!AUnion, "Failed to determine that AUnion is not an enum!");
+	static assert(isEnum!AnEnum, "Failed to determine that AnEnum is an enum!");
+	static assert(!isEnum!(typeof(AFunction)), "Failed to determine that AFunction is not an enum!");
+}
+
 template isFunction(T)
 {
 	enum bool isFunction = is(T == function);
