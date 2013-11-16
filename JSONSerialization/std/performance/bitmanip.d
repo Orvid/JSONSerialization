@@ -1,6 +1,7 @@
 module std.performance.bitmanip;
 
 import core.bitop : bt, bts, btr;
+import std.traitsExt : Dequal;
 
 struct BitArray(int length)
 {
@@ -53,28 +54,44 @@ struct BitArray(int length)
 		return b;
 	}
 
-	BitArray!length opOpAssign(string op : "&")(BitArray!length a2)
+	BitArray!length opOpAssign(string op : "&", Barr)(ref Barr a2)
+		if (is(Dequal!Barr == BitArray!length))
 	{
-		this.data[] &= a2.data[];
-		return this;
-	}
-
-	bool opEquals(BitArray!length a2) @trusted pure nothrow
-	{
-		if (__ctfe)
+		static if (dataLength == 1)
 		{
-			for (auto i = 0; i < dataLength; i++)
-			{
-				if (data[i] != a2.data[i])
-					return false;
-			}
-			return true;
+			data[0] &= a2.data[0];
 		}
 		else
 		{
-			import std.c.string : memcmp;
+			this.data[] &= a2.data[];
+		}
+		return this;
+	}
 
-			return !memcmp(this.data.ptr, a2.data.ptr, dataLength);
+	bool opEquals(Barr)(ref Barr a2) @trusted pure nothrow
+		if (is(Dequal!Barr == BitArray!length))
+	{
+		static if (dataLength == 1)
+		{
+			return data[0] == a2.data[0];
+		}
+		else
+		{
+			if (__ctfe)
+			{
+				for (auto i = 0; i < dataLength; i++)
+				{
+					if (data[i] != a2.data[i])
+						return false;
+				}
+				return true;
+			}
+			else
+			{
+				import std.c.string : memcmp;
+
+				return !memcmp(this.data.ptr, a2.data.ptr, dataLength);
+			}
 		}
 	}
 }

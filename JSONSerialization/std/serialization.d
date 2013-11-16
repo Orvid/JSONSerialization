@@ -125,7 +125,7 @@ protected:
 				if (!isMemberOptional!(T, m))
 					expectedArr[i] = true;
 			}
-			ret.put(`enum expectedFields = BitArray!`);
+			ret.put(`private static immutable expectedFields = BitArray!`);
 			ret.put(to!string(membersLength));
 			ret.put(`([`);
 			foreach (i, d; expectedArr.data)
