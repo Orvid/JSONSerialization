@@ -259,19 +259,19 @@ final class JSONSerializationFormat : SerializationFormat
 		}
 		enum TokenType
 		{
-			Unknown,
-			String,
-			Number,
-			LCurl,
-			RCurl,
-			LSquare,
-			RSquare,
-			Colon,
-			Comma,
-			False,
-			True,
-			Null,
-			EOF,
+			Unknown = 1 << 0,
+			String = 1 << 1,
+			Number = 1 << 2,
+			LCurl = 1 << 3,
+			RCurl = 1 << 4,
+			LSquare = 1 << 5,
+			RSquare = 1 << 6,
+			Colon = 1 << 7,
+			Comma = 1 << 8,
+			False = 1 << 9,
+			True = 1 << 10,
+			Null = 1 << 11,
+			EOF = 1 << 12,
 		}
 		Range input;
 		Token current;
@@ -286,19 +286,19 @@ final class JSONSerializationFormat : SerializationFormat
 		void expect(TokenTypes...)() @safe
 		{
 			debug import std.conv : to;
-			switch (current.type)
-			{
-				foreach (tp; TokenTypes)
-				{
-					case tp:
-					return;
-				}
-				default:
-					debug
-						throw new Exception("Unexpected token! `" ~ to!string(current.type) ~ "`!");
-					else
-						throw new Exception("Unexpected token!"); // TODO: Make more descriptive
-			}
+			import std.algorithm : reduce;
+
+			// This right here is the reason the token types are flags;
+			// it allows us to do a single direct branch, even for multiple
+			// possible token types.
+			enum expectedFlags = reduce!((a, b) => cast(ushort)a | cast(ushort)b)(0, [TokenTypes]);
+			if ((current.type | expectedFlags) == expectedFlags)
+				return;
+
+			debug
+				throw new Exception("Unexpected token! `" ~ to!string(current.type) ~ "`!");
+			else
+				throw new Exception("Unexpected token!"); // TODO: Make more descriptive
 		}
 		
 		void consume() @safe pure
@@ -313,6 +313,9 @@ final class JSONSerializationFormat : SerializationFormat
 					case State.None:
 						switch (input[curI])
 						{
+							case ' ', '\t', '\v', '\r', '\n':
+								curI++;
+								break;
 							case '{':
 								current = Token(TokenType.LCurl);
 								goto Return;
@@ -498,10 +501,10 @@ final class JSONSerializationFormat : SerializationFormat
 	
 	private static C getCharacter(C)(ref string input) @safe pure
 		if (isOneOf!(C, char, wchar, dchar))
-			in
-		{
-			assert(input.length > 0);
-		}
+	in
+	{
+		assert(input.length > 0);
+	}
 	body
 	{
 		import std.conv : to;
@@ -598,7 +601,7 @@ final class JSONSerializationFormat : SerializationFormat
 			import std.performance.string : equal;
 
 			// TODO: Support classes/structs with toString & parse methods.
-			if (parser.current.stringValue.equal!("null"))
+			if (parser.current.stringValue.equal!("null", false))
 			{
 				parser.consume();
 				return T.init;
@@ -613,7 +616,7 @@ final class JSONSerializationFormat : SerializationFormat
 		parser.consume();
 		if (parser.current.type != TokenType.RCurl) do
 		{
-			if (!first && parser.current.type == TokenType.Comma)
+			if (!first) // The fact we've got here means the current token MUST be a comma.
 				parser.consume();
 			
 			parser.expect!(TokenType.String);
@@ -640,6 +643,7 @@ final class JSONSerializationFormat : SerializationFormat
 			first = false;
 			continue;
 		} while (parser.current.type == TokenType.Comma);
+
 		parser.expect!(TokenType.RCurl);
 		parser.consume();
 		
@@ -659,9 +663,8 @@ final class JSONSerializationFormat : SerializationFormat
 		parser.consume();
 		return val;
 	}
-	
-	// TODO: Make safe once string->float conversion is safe.
-	private static T deserializeValue(T, PT)(ref PT parser) @trusted
+
+	private static T deserializeValue(T, PT)(ref PT parser) @safe pure
 		if (isNativeSerializationSupported!T && isOneOf!(T, float, double, real))
 	{
 		alias TokenType = PT.TokenType;
@@ -678,11 +681,11 @@ final class JSONSerializationFormat : SerializationFormat
 		if (isNativeSerializationSupported!T && isOneOf!(T, byte, ubyte, short, ushort, int, uint, long, ulong/*, cent, ucent*/))
 	{
 		alias TokenType = PT.TokenType;
-		
-		import std.conv : to;
+
+		import std.performance.conv : parse;
 		
 		parser.expect!(TokenType.Number, TokenType.String);
-		T val = to!T(parser.current.stringValue);
+		T val = parse!T(parser.current.stringValue);
 		parser.consume();
 		return val;
 	}
@@ -696,10 +699,14 @@ final class JSONSerializationFormat : SerializationFormat
 		parser.expect!(TokenType.True, TokenType.False, TokenType.String);
 		if (parser.current.type == TokenType.String)
 		{
-			import std.conv : to;
+			import std.performance.string : equal;
 
-			// TODO: Do this manually, to!bool is obviously not the most effecient way to do this.
-			ret = to!bool(parser.current.stringValue);
+			if (parser.current.stringValue.equal!("true", false))
+				ret = true;
+			else if (parser.current.stringValue.equal!("false", false))
+				ret = false;
+			else
+				throw new Exception("Invalid string for a boolean!");
 		}
 		else
 			ret = parser.current.type == TokenType.True;
@@ -747,23 +754,24 @@ final class JSONSerializationFormat : SerializationFormat
 	{
 		alias TokenType = PT.TokenType;
 		
-		import std.performance.array : Appender;
-		
 		parser.expect!(TokenType.LSquare);
 		parser.consume();
-		
-		T arrVal;// = Appender!T();
+
+		// Due to the fact most arrays in JSON will
+		// be fairly small arrays, not 4-8k elements,
+		// just appending to an existing array is the
+		// fastest way to do this.
+		T arrVal;
 		bool first = true;
 		
 		if (parser.current.type != TokenType.RSquare) do
 		{
-			if (!first && parser.current.type == TokenType.Comma)
+			if (!first) // The fact we got here means that the current token MUST be a comma.
 				parser.consume();
 			
 			arrVal ~= deserializeValue!(ForeachType!T)(parser);
 			first = false;
 		} while (parser.current.type == TokenType.Comma);
-		
 		
 		parser.expect!(TokenType.RSquare);
 		parser.consume();
@@ -805,12 +813,7 @@ T fromJSON(T)(string val) @safe
 	import std.algorithm : equal;
 	import std.conv : to;
 	import std.serialization : nonSerialized, optional, serializeAs, serializable;
-
-	static @property void assertStaticAndRuntime(alias expr, string errorMessage)()
-	{
-		static assert(expr, errorMessage);
-		assert(expr, errorMessage);
-	}
+	import std.testing : assertStaticAndRuntime;
 
 	@serializable static class PrivateConstructor { private this() { } @optional int A = 3; int B = 5; }
 	assertStaticAndRuntime!(!__traits(compiles, { assert(toJSON(new PrivateConstructor()) == `{"B":5}`); }), "A private constructor was allowed for a serializable class while attempting serialization!");
@@ -846,57 +849,72 @@ T fromJSON(T)(string val) @safe
 	@serializable static class ByteField { byte A = -3; }
 	assertStaticAndRuntime!(toJSON(new ByteField()) == `{"A":-3}`, "Failed to correctly serialize a byte field!");
 	assertStaticAndRuntime!(fromJSON!ByteField(`{"A":-3}`).A == -3, "Failed to correctly deserialize a byte field!");
+	assertStaticAndRuntime!(fromJSON!ByteField(`{"A":"-3"}`).A == -3, "Failed to correctly deserialize a byte field set to the quoted value '-3'!");
 
 	@serializable static class UByteField { ubyte A = 159; }
 	assertStaticAndRuntime!(toJSON(new UByteField()) == `{"A":159}`, "Failed to correctly serialize a ubyte field!");
 	assertStaticAndRuntime!(fromJSON!UByteField(`{"A":159}`).A == 159, "Failed to correctly deserialize a ubyte field!");
+	assertStaticAndRuntime!(fromJSON!UByteField(`{"A":"159"}`).A == 159, "Failed to correctly deserialize a ubyte field set to the quoted value '159'!");
 
 	@serializable static class ShortField { short A = -26125; }
 	assertStaticAndRuntime!(toJSON(new ShortField()) == `{"A":-26125}`, "Failed to correctly serialize a short field!");
 	assertStaticAndRuntime!(fromJSON!ShortField(`{"A":-26125}`).A == -26125, "Failed to correctly deserialize a short field!");
+	assertStaticAndRuntime!(fromJSON!ShortField(`{"A":"-26125"}`).A == -26125, "Failed to correctly deserialize a short field set to the quoted value '-26125'!");
 
 	@serializable static class UShortField { ushort A = 65313; }
 	assertStaticAndRuntime!(toJSON(new UShortField()) == `{"A":65313}`, "Failed to correctly serialize a ushort field!");
 	assertStaticAndRuntime!(fromJSON!UShortField(`{"A":65313}`).A == 65313, "Failed to correctly deserialize a ushort field!");
+	assertStaticAndRuntime!(fromJSON!UShortField(`{"A":"65313"}`).A == 65313, "Failed to correctly deserialize a ushort field set to the quoted value '65313'!");
 
 	@serializable static class IntField { int A = -2032534342; }
 	assertStaticAndRuntime!(toJSON(new IntField()) == `{"A":-2032534342}`, "Failed to correctly serialize an int field!");
 	assertStaticAndRuntime!(fromJSON!IntField(`{"A":-2032534342}`).A == -2032534342, "Failed to correctly deserialize an int field!");
+	assertStaticAndRuntime!(fromJSON!IntField(`{"A":"-2032534342"}`).A == -2032534342, "Failed to correctly deserialize an int field set to the quoted value '-2032534342'!");
 
 	@serializable static class UIntField { uint A = 2520041234; }
 	assertStaticAndRuntime!(toJSON(new UIntField()) == `{"A":2520041234}`, "Failed to correctly serialize a uint field!");
 	assertStaticAndRuntime!(fromJSON!UIntField(`{"A":2520041234}`).A == 2520041234, "Failed to correctly deserialize a uint field!");
+	assertStaticAndRuntime!(fromJSON!UIntField(`{"A":"2520041234"}`).A == 2520041234, "Failed to correctly deserialize a uint field set to the quoted value '2520041234'!");
 
 	@serializable static class LongField { long A = -2305393212345134623; }
 	assertStaticAndRuntime!(toJSON(new LongField()) == `{"A":-2305393212345134623}`, "Failed to correctly serialize a long field!");
 	assertStaticAndRuntime!(fromJSON!LongField(`{"A":-2305393212345134623}`).A == -2305393212345134623, "Failed to correctly deserialize a long field!");
+	assertStaticAndRuntime!(fromJSON!LongField(`{"A":"-2305393212345134623"}`).A == -2305393212345134623, "Failed to correctly deserialize a long field set to the quoted value '-2305393212345134623'!");
 
 	@serializable static class ULongField { ulong A = 4021352154138321354; }
 	assertStaticAndRuntime!(toJSON(new ULongField()) == `{"A":4021352154138321354}`, "Failed to correctly serialize a ulong field!");
 	assertStaticAndRuntime!(fromJSON!ULongField(`{"A":4021352154138321354}`).A == 4021352154138321354, "Failed to correctly deserialize a ulong field!");
+	assertStaticAndRuntime!(fromJSON!ULongField(`{"A":"4021352154138321354"}`).A == 4021352154138321354, "Failed to correctly deserialize a ulong field set to the quoted value '4021352154138321354'!");
 
 	//@serializable static class CentField { cent A = -23932104152349231532145324134; }
 	//assertStaticAndRuntime!(toJSON(new CentField()) == `{"A":-23932104152349231532145324134}`, "Failed to correctly serialize a cent field!");
 	//assertStaticAndRuntime!(fromJSON!CentField(`{"A":-23932104152349231532145324134}`).A == -23932104152349231532145324134, "Failed to correctly deserialize a cent field!");
+	//assertStaticAndRuntime!(fromJSON!CentField(`{"A":"-23932104152349231532145324134"}`).A == -23932104152349231532145324134, "Failed to correctly deserialize a cent field set to the quoted value '-23932104152349231532145324134'!");
 
 	//@serializable static class UCentField { ucent A = 40532432168321451235829354323; }
 	//assertStaticAndRuntime!(toJSON(new UCentField()) == `{"A":40532432168321451235829354323}`, "Failed to correctly serialize a ucent field!");
 	//assertStaticAndRuntime!(fromJSON!UCentField(`{"A":40532432168321451235829354323}`).A == 40532432168321451235829354323, "Failed to correctly deserialize a ucent field!");
+	//assertStaticAndRuntime!(fromJSON!UCentField(`{"A":"40532432168321451235829354323"}`).A == 40532432168321451235829354323, "Failed to correctly deserialize a ucent field set to the quoted value '40532432168321451235829354323'!");
 
+	// TODO: Test NaN and infinite support.
+	// TODO: Why on earth does this have no decimals???
 	@serializable static class FloatField { float A = -433200; }
 	// TODO: Make this static once float -> string conversion is possible in CTFE
 	assert(toJSON(new FloatField()) == `{"A":-433200}`, "Failed to correctly serialize a float field!");
 	assertStaticAndRuntime!(fromJSON!FloatField(`{"A":-433200}`).A == -433200, "Failed to correctly deserialize a float field!");
+	assertStaticAndRuntime!(fromJSON!FloatField(`{"A":"-433200"}`).A == -433200, "Failed to correctly deserialize a float field set to the quoted value '-433200'!");
 
 	@serializable static class DoubleField { double A = 3.25432e+53; }
 	// TODO: Make this static once double -> string conversion is possible in CTFE
 	assert(toJSON(new DoubleField()) == `{"A":3.25432e+53}`, "Failed to correctly serialize a double field!");
 	assertStaticAndRuntime!(fromJSON!DoubleField(`{"A":3.25432e+53}`).A == 3.25432e+53, "Failed to correctly deserialize a double field!");
+	assertStaticAndRuntime!(fromJSON!DoubleField(`{"A":"3.25432e+53"}`).A == 3.25432e+53, "Failed to correctly deserialize a double field set to the quoted value '3.25432e+53'!");
 
 	@serializable static class RealField { real A = -2.13954e+104; }
 	// TODO: Make this static once real -> string conversion is possible in CTFE
 	assert(toJSON(new RealField()) == `{"A":-2.13954e+104}`, "Failed to correctly serialize a real field!");
 	assertStaticAndRuntime!(fromJSON!RealField(`{"A":-2.13954e+104}`).A == -2.13954e+104, "Failed to correctly deserialize a real field!");
+	assertStaticAndRuntime!(fromJSON!RealField(`{"A":"-2.13954e+104"}`).A == -2.13954e+104, "Failed to correctly deserialize a real field set to the quoted value '-2.13954e+104'!");
 
 	@serializable static class CharField { char A = '\x05'; }
 	assertStaticAndRuntime!(toJSON(new CharField()) == `{"A":"\u0005"}`, "Failed to correctly serialize a char field!");
@@ -941,6 +959,8 @@ T fromJSON(T)(string val) @safe
 	assertStaticAndRuntime!(toJSON((new TrueBoolField()).Init()) == `{"A":true}`, "Failed to correctly serialize a bool field set to true!");
 	assertStaticAndRuntime!(fromJSON!TrueBoolField(`{"A":true}`).A == true, "Failed to correctly deserialize a bool field set to true!");
 	assertStaticAndRuntime!(fromJSON!TrueBoolField(`{"A":"true"}`).A == true, "Failed to correctly deserialize a bool field set to the quoted value 'true'!");
+	assertStaticAndRuntime!(fromJSON!TrueBoolField(`{"A":"True"}`).A == true, "Failed to correctly deserialize a bool field set to the quoted value 'True'!");
+	assertStaticAndRuntime!(fromJSON!TrueBoolField(`{"A":"tRUe"}`).A == true, "Failed to correctly deserialize a bool field set to the quoted value 'tRUe'!");
 
 	@serializable static class NullObjectField { Object A = null; }
 	assertStaticAndRuntime!(toJSON(new NullObjectField()) == `{"A":null}`, "Failed to correctly serialize an Object field set to null!");

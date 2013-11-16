@@ -4,7 +4,7 @@ import std.ascii : LetterCase;
 import std.conv : ConvException, unsigned;
 import std.exception : enforce;
 import std.range : ElementEncodingType, isOutputRange;
-import std.traits : isIntegral, isSomeString, Unqual, Unsigned;
+import std.traits : isIntegral, isSomeString, Select, Unqual, Unsigned;
 import std.traitsExt : Dequal;
 
 T to(T, S)(S value) @trusted pure nothrow
@@ -19,6 +19,83 @@ T to(T, S)(S value)
 	import std.conv : to;
 
 	return to!T(value);
+}
+
+T parse(T, S)(S s) @safe pure
+	if (isIntegral!T && isSomeString!S)
+{
+	static if (size_t.sizeof == 8)
+	{
+		alias NativeInteger = long;
+		alias NativeUInteger = ulong;
+	}
+	else // 32-bit and unknown.
+	{
+		alias NativeInteger = int;
+		alias NativeUInteger = uint;
+	}
+
+	static if (T.sizeof < NativeInteger.sizeof)
+	{
+		// smaller types are handled like integers
+		auto v = .parse!(Select!(T.min < 0, NativeInteger, NativeUInteger))(s);
+		auto result = () @trusted { return cast(T)v; }();
+		if (result != v)
+			throw new Exception("Failed to parse the string!");
+		return result;
+	}
+	else
+	{
+		// An native integer or larger.
+		
+		static if (T.min < 0)
+			bool sign = false;
+		else
+			enum sign = false;
+		T v = 0;
+		bool atStart = true;
+		// This is true regardless of the size of the integer.
+		enum char maxLastDigit = T.min < 0 ? '7' : '5';
+		while (s.length)
+		{
+			switch (s[0])
+			{
+				case '0': .. case '9':
+					if (v >= T.max/10 && (v != T.max/10 || s[0] - sign > maxLastDigit))
+						throw new Exception("The number overflowed!");
+					v = cast(T)(v * 10 + (s[0] - '0'));
+					atStart = false;
+					break;
+
+				static if (T.min < 0)
+				{
+					case '+':
+						if (!atStart)
+							throw new Exception("Invalid character!");
+						break;
+					case '-':
+						if (atStart)
+							sign = true;
+						else
+							throw new Exception("Invalid character!");
+						break;
+				}
+				default:
+					throw new Exception("Invalid character!");
+			}
+			s = s[1..$];
+		}
+		if (atStart)
+			throw new Exception("Failed to parse the string!");
+		static if (T.min < 0)
+		{
+			if (sign)
+			{
+				v = -v;
+			}
+		}
+		return v;
+	}
 }
 
 void to(T, S, OR)(S value, OR outputRange, uint radix = 10, LetterCase letterCase = LetterCase.upper) @trusted pure

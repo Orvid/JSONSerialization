@@ -58,4 +58,23 @@ struct BitArray(int length)
 		this.data[] &= a2.data[];
 		return this;
 	}
+
+	bool opEquals(BitArray!length a2) @trusted pure nothrow
+	{
+		if (__ctfe)
+		{
+			for (auto i = 0; i < dataLength; i++)
+			{
+				if (data[i] != a2.data[i])
+					return false;
+			}
+			return true;
+		}
+		else
+		{
+			import std.c.string : memcmp;
+
+			return !memcmp(this.data.ptr, a2.data.ptr, dataLength);
+		}
+	}
 }
