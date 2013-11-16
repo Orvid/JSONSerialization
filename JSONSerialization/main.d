@@ -1,12 +1,10 @@
 module main;
 
 import std.stdio;
-import std.array;
 import std.datetime : StopWatch;
 import std.serialization : serializable;
 import std.json : toJSON, fromJSON;
 import std.conv : to;
-import std.range : isOutputRange;
 import std.performance.array : Appender;
 
 enum ObjectCount = 100000;

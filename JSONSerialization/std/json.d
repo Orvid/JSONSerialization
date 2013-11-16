@@ -226,24 +226,8 @@ final class JSONSerializationFormat : SerializationFormat
 
 	// TODO: Implement the generic input range based version.
 	@deserializationContext private static struct JSONLexer(Range)
-	if (is(Range == string))
+		if (is(Range == string))
 	{
-		private enum State
-		{
-			None,
-			String,
-			Number,
-			F_,
-			Fa_,
-			Fal_,
-			Fals_,
-			T_,
-			Tr_,
-			Tru_,
-			N_,
-			Nu_,
-			Nul_,
-		}
 		static struct Token
 		{
 			TokenType type = TokenType.Unknown;
@@ -303,196 +287,132 @@ final class JSONSerializationFormat : SerializationFormat
 		
 		void consume() @safe pure
 		{
+			if (!input.length)
+			{
+				current = Token(TokenType.EOF);
+				return;
+			}
+
 			size_t curI = 0;
-			State curState = State.None;
-			
 			while (curI < input.length)
 			{
-				final switch (curState)
+				switch (input[curI])
 				{
-					case State.None:
-						switch (input[curI])
-						{
-							case ' ', '\t', '\v', '\r', '\n':
-								curI++;
-								break;
-							case '{':
-								current = Token(TokenType.LCurl);
-								goto Return;
-							case '}':
-								current = Token(TokenType.RCurl);
-								goto Return;
-							case '[':
-								current = Token(TokenType.LSquare);
-								goto Return;
-							case ']':
-								current = Token(TokenType.RSquare);
-								goto Return;
-							case ':':
-								current = Token(TokenType.Colon);
-								goto Return;
-							case ',':
-								current = Token(TokenType.Comma);
-								goto Return;
-								
-							case 'F', 'f':
-								curState = State.F_;
-								curI++;
-								break;
-							case 'T', 't':
-								curState = State.T_;
-								curI++;
-								break;
-							case 'N', 'n':
-								curState = State.N_;
-								curI++;
-								break;
-								
-							case '"':
-								curState = State.String;
-								curI++;
-								break;
-								
-							case '-', '+':
-							case '0': .. case '9':
-								curState = State.Number;
-								curI++;
-								break;
-								
-							default:
-								// TODO: This shouldn't throw an exception.
-								throw new Exception("Unknown input '" ~ input[curI] ~ "'!");
-						}
+					case ' ', '\t', '\v', '\r', '\n':
+						curI++;
 						break;
-					case State.String:
-						if (input[curI] == '\\')
-						{
-							if (curI + 1 >= input.length)
-								throw new Exception("Unexpected EOF");
-							curI++;
-							curI++;
-						}
-						else if (input[curI] == '"')
-						{
-							current = Token(TokenType.String, input[1..curI]);
-							goto Return;
-						}
-						else
-							curI++;
-						break;
-					case State.Number:
-						switch (input[curI])
-						{
-							case 'E', 'e', '+', '-', '.':
-							case '0': .. case '9':
-								curI++;
-								break;
-								
-							default:
-								current = Token(TokenType.Number, input[0..curI]);
-								curI--; // Adjust for the +1 used when we return.
-								goto Return;
-						}
-						break;
+					case '{':
+						current = Token(TokenType.LCurl);
+						goto Return;
+					case '}':
+						current = Token(TokenType.RCurl);
+						goto Return;
+					case '[':
+						current = Token(TokenType.LSquare);
+						goto Return;
+					case ']':
+						current = Token(TokenType.RSquare);
+						goto Return;
+					case ':':
+						current = Token(TokenType.Colon);
+						goto Return;
+					case ',':
+						current = Token(TokenType.Comma);
+						goto Return;
 						
-					case State.F_:
-						if (input[curI] == 'A' || input[curI] == 'a')
-						{
-							curState = State.Fa_;
-							curI++;
-						}
-						else
-							throw new Exception("");
-						break;
-					case State.Fa_:
-						if (input[curI] == 'L' || input[curI] == 'l')
-						{
-							curState = State.Fal_;
-							curI++;
-						}
-						else
-							throw new Exception("");
-						break;
-					case State.Fal_:
-						if (input[curI] == 'S' || input[curI] == 's')
-						{
-							curState = State.Fals_;
-							curI++;
-						}
-						else
-							throw new Exception("");
-						break;
-					case State.Fals_:
-						if (input[curI] == 'E' || input[curI] == 'e')
-						{
-							current = Token(TokenType.False);
-							goto Return;
-						}
-						else
-							throw new Exception("");
-						break;
+					case 'F', 'f':
+						curI++;
+						if (input[curI] != 'a' && input[curI] != 'A')
+							goto IdentifierError;
+						curI++;
+						if (input[curI] != 'l' && input[curI] != 'L')
+							goto IdentifierError;
+						curI++;
+						if (input[curI] != 's' && input[curI] != 'S')
+							goto IdentifierError;
+						curI++;
+						if (input[curI] != 'e' && input[curI] != 'E')
+							goto IdentifierError;
+						current = Token(TokenType.False);
+						goto Return;
+
+					case 'T', 't':
+						curI++;
+						if (input[curI] != 'r' && input[curI] != 'R')
+							goto IdentifierError;
+						curI++;
+						if (input[curI] != 'u' && input[curI] != 'U')
+							goto IdentifierError;
+						curI++;
+						if (input[curI] != 'e' && input[curI] != 'E')
+							goto IdentifierError;
+						current = Token(TokenType.True);
+						goto Return;
+
+					case 'N', 'n':
+						curI++;
+						if (input[curI] != 'u' && input[curI] != 'U')
+							goto IdentifierError;
+						curI++;
+						if (input[curI] != 'l' && input[curI] != 'L')
+							goto IdentifierError;
+						curI++;
+						if (input[curI] != 'l' && input[curI] != 'L')
+							goto IdentifierError;
+						current = Token(TokenType.Null);
+						goto Return;
 						
-					case State.T_:
-						if (input[curI] == 'R' || input[curI] == 'r')
+					case '"':
+						curI++;
+						while (curI < input.length)
 						{
-							curState = State.Tr_;
-							curI++;
+							// TODO: Make this a switch statement for readability once DMD auto-expands small
+							//       switch statements to if-else chains.
+							if (input[curI] == '\\')
+							{
+								// This loop will end if we just passed
+								// the end of the file, and throw an EOF
+								// exception for us.
+								curI += 2;
+							}
+							else if (input[curI] == '"')
+							{
+								current = Token(TokenType.String, input[1..curI]);
+								goto Return;
+							}
+							else
+								curI++;
 						}
-						else
-							throw new Exception("");
-						break;
-					case State.Tr_:
-						if (input[curI] == 'U' || input[curI] == 'u')
-						{
-							curState = State.Tru_;
-							curI++;
-						}
-						else
-							throw new Exception("");
-						break;
-					case State.Tru_:
-						if (input[curI] == 'E' || input[curI] == 'e')
-						{
-							current = Token(TokenType.True);
-							goto Return;
-						}
-						else
-							throw new Exception("");
-						break;
+						goto EOF;
 						
-					case State.N_:
-						if (input[curI] == 'U' || input[curI] == 'u')
+					case '-', '+':
+					case '0': .. case '9':
+						curI++;
+						while (curI < input.length)
 						{
-							curState = State.Nu_;
-							curI++;
+							switch (input[curI])
+							{
+								case 'E', 'e', '+', '-', '.':
+								case '0': .. case '9':
+									curI++;
+									break;
+									
+								default:
+									current = Token(TokenType.Number, input[0..curI]);
+									curI--; // Adjust for the +1 used when we return.
+									goto Return;
+							}
 						}
-						else
-							throw new Exception("");
-						break;
-					case State.Nu_:
-						if (input[curI] == 'L' || input[curI] == 'l')
-						{
-							curState = State.Nul_;
-							curI++;
-						}
-						else
-							throw new Exception("");
-						break;
-					case State.Nul_:
-						if (input[curI] == 'L' || input[curI] == 'l')
-						{
-							current = Token(TokenType.Null);
-							goto Return;
-						}
-						else
-							throw new Exception("");
-						break;
+						goto EOF;
+						
+					default:
+						throw new Exception("Unknown input '" ~ input[curI] ~ "'!");
+					IdentifierError:
+						throw new Exception("Unknown identifier!");
+					EOF:
+						throw new Exception("Unexpected EOF!");
 				}
 			}
-			if (curState != State.None)
-				throw new Exception("Unexpected EOF!");
-			current = Token(TokenType.EOF);
-			return;
 			
 		Return:
 			input = input[curI + 1..$];
