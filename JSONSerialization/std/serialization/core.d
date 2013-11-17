@@ -1,4 +1,4 @@
-module std.serialization;
+module std.serialization.core;
 
 enum optional;
 enum serializable;
@@ -13,33 +13,33 @@ struct BinaryOutputRange(OR)
 
 private:
 	OR mInnerRange;
-
+	
 	// TODO: Support big endian output.
 	version(BigEndian)
 		static assert(0, "Support for a big-endian host still needs to be added!");
-
+	
 public:
 	@property OR innerRange()
 	{
 		return mInnerRange;
 	}
-
+	
 	this(OR init)
 	{
 		mInnerRange = init;
 	}
-
+	
 	auto opDispatch(string s, Args...)(Args a) @trusted
 	{
 		mixin("return mInnerRange." ~ s ~ "(a);");
 	}
-
+	
 	void put(C)(C[] arr) @trusted
 		if (isIntegral!C || isSomeChar!C)
 	{
 		mInnerRange.put(cast(ubyte[])arr);
 	}
-
+	
 	void put(C)(C c) @trusted
 		if (isIntegral!C || isSomeChar!C)
 	{
@@ -65,7 +65,7 @@ unittest
 {
 	import std.performance.array : Appender;
 	import std.range : isOutputRange;
-
+	
 	static assert(isOutputRange!(BinaryOutputRange!(Appender!(ubyte[])), string));
 	static assert(isOutputRange!(BinaryOutputRange!(Appender!(ubyte[])), wstring));
 	static assert(isOutputRange!(BinaryOutputRange!(Appender!(ubyte[])), dstring));
@@ -97,28 +97,28 @@ abstract class SerializationFormat
 		isMemberField,
 		memberHasAttribute
 	;
-
+	
 protected:
 	static struct SerializedFieldSet(T)
 	{
 		import std.performance.bitmanip : BitArray;
-
+		
 		alias members = membersToSerialize!T;
 		// BUG: Required due to a bug that causes compilation to fail
 		enum membersLength = members.length;
-
+		
 		mixin(genDeclarations());
 		private static string genDeclarations()
 		{
 			import std.conv : to;
 			import std.array : Appender;
-
+			
 			auto ret = Appender!string();
-
+			
 			ret.put(`BitArray!`);
 			ret.put(to!string(membersLength));
 			ret.put(` fieldMarkers;`);
-
+			
 			BitArray!membersLength expectedArr;
 			foreach (i, m; members)
 			{
@@ -137,17 +137,17 @@ protected:
 			}
 			ret.put(`]);`);
 			ret.put(`private static immutable expectedFields = expectedFieldsEnum;`);
-
+			
 			return ret.data;
 		}
-
+		
 		@property void markSerialized(string member)() @safe pure nothrow
 		{
 			import std.typecons : staticIndexOf;
-
+			
 			fieldMarkers[staticIndexOf!(member, members)] = true;
 		}
-
+		
 		void ensureFullySerialized() @safe pure
 		{
 			// TODO: A bug in DMD means that expectedFields isn't accessible in
@@ -166,14 +166,14 @@ protected:
 			}
 		}
 	}
-
+	
 	enum deserializationContext;
 	enum isDeserializationContext(T) = hasAttribute!(T, deserializationContext);
-
+	
 	template isSerializable(T)
 	{
 		import std.traits : isBuiltinType;
-
+		
 		static if (isBuiltinType!T)
 			enum isSerializable = true;
 		else static if (hasAttribute!(T, serializable) || is(Dequal!T == Object))
@@ -181,7 +181,7 @@ protected:
 		else
 			enum isSerializable = false;
 	}
-
+	
 	static void ensurePublicConstructor(T)() @safe pure nothrow
 	{
 		static if (isClass!T)
@@ -196,7 +196,7 @@ protected:
 	{
 		alias CTValSet(E...) = E;
 		enum shouldSerializeMember(string member) = member != "this" && isMemberField!(T, member) && !memberHasAttribute!(T, member, nonSerialized);
-
+		
 		// TODO: This needs to deal with inherited members that have the same name.
 		template membersToSerializeImpl(T, Members...)
 		{
@@ -217,7 +217,7 @@ protected:
 		}
 		alias membersToSerialize = membersToSerializeImpl!(T, __traits(allMembers, T));
 	}
-
+	
 	enum isMemberOptional(T, string member) = memberHasAttribute!(T, member, optional);
 	
 	static bool shouldSerializeValue(T, string member)(T val) @safe pure nothrow
@@ -241,12 +241,12 @@ protected:
 			{
 				return serialize(output, cast(Dequal!T)val);
 			}
-
+			
 			static void serialize(T)(ref BinaryOutputRange!OR output, T val) @trusted
 				if (!isNativeSerializationSupported!T && is(Dequal!T == T))
 			{
 				import std.traitsExt : isEnum;
-
+				
 				// TODO: Figure out a way that this can be done without needing to
 				//       allocate a string for the value. Unfortunately this currently
 				//       is prevented by the need to process the actual string.
@@ -257,7 +257,7 @@ protected:
 				else static if (isEnum!T)
 				{
 					import std.conv : to;
-
+					
 					serialize(output, to!string(val));
 				}
 				else
@@ -265,7 +265,7 @@ protected:
 			}
 		};
 	}
-
+	
 	template BaseDeserializationMembers()
 	{
 		enum BaseDeserializationMembers = q{
@@ -281,7 +281,7 @@ protected:
 				if (!isNativeSerializationSupported!T && is(Dequal!T == T) && isDeserializationContext!PT)
 			{
 				import std.traitsExt : isEnum;
-
+				
 				static if (__traits(compiles, (cast(T)T.init).toString()) && __traits(compiles, T.parse("")))
 				{
 					T v = T.parse(ctx.current.stringValue);
@@ -301,7 +301,7 @@ protected:
 			}
 		};
 	}
-
+	
 public:
 	abstract ubyte[] serialize(T)(T val);
 	abstract T deserialize(T)(ubyte[] data);

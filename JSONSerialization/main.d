@@ -3,7 +3,7 @@ module main;
 import std.stdio;
 import std.datetime : StopWatch;
 import std.serialization : serializable;
-import std.json : toJSON, fromJSON;
+import std.serialization.json : toJSON, fromJSON;
 import std.conv : to;
 import std.performance.array : Appender;
 

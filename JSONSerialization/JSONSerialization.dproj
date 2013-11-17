@@ -43,8 +43,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="main.d" />
-    <Compile Include="std\json.d" />
-    <Compile Include="std\serialization.d" />
     <Compile Include="std\traitsExt.d" />
     <Compile Include="std\collections.d" />
     <Compile Include="std\performance\conv.d" />
@@ -52,9 +50,13 @@
     <Compile Include="std\performance\bitmanip.d" />
     <Compile Include="std\performance\string.d" />
     <Compile Include="std\testing.d" />
+    <Compile Include="std\serialization\json.d" />
+    <Compile Include="std\serialization\core.d" />
+    <Compile Include="std\serialization\package.d" />
   </ItemGroup>
   <ItemGroup>
     <Folder Include="std\" />
     <Folder Include="std\performance\" />
+    <Folder Include="std\serialization\" />
   </ItemGroup>
 </Project>

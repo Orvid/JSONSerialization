@@ -1,4 +1,4 @@
-module std.json;
+module std.serialization.json;
 
 version = MaxPerformance;
 
