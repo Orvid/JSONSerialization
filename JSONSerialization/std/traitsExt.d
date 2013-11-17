@@ -1,5 +1,9 @@
 module std.traitsExt;
 
+// Everything in this module is eventually meant to be 
+// included in std.traits, thus the camelCase name, rather 
+// than the normal lower_case.
+
 enum isClass(T) = is(T == class);
 @safe pure nothrow unittest
 {

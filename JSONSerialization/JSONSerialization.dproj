@@ -29,7 +29,7 @@
     <UnittestMode>false</UnittestMode>
     <ObjectsDirectory>obj\Release</ObjectsDirectory>
     <DebugLevel>0</DebugLevel>
-    <ExtraCompilerArguments>-g -inline -profile</ExtraCompilerArguments>
+    <ExtraCompilerArguments>-g -inline</ExtraCompilerArguments>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Unittest|AnyCPU' ">
     <DebugSymbols>true</DebugSymbols>
@@ -53,6 +53,7 @@
     <Compile Include="std\serialization\json.d" />
     <Compile Include="std\serialization\core.d" />
     <Compile Include="std\serialization\package.d" />
+    <Compile Include="std\serialization\bson.d" />
   </ItemGroup>
   <ItemGroup>
     <Folder Include="std\" />
