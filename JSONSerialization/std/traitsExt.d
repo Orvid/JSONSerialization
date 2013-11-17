@@ -1,9 +1,6 @@
 module std.traitsExt;
 
-template isClass(T)
-{
-	enum bool isClass = is(T == class);
-}
+enum isClass(T) = is(T == class);
 @safe pure nothrow unittest
 {
 	class AClass { }
@@ -21,10 +18,7 @@ template isClass(T)
 	static assert(!isClass!(typeof(AFunction)), "Failed to determine that AFunction is not a class!");
 }
 
-template isStruct(T)
-{
-	enum bool isStruct = is(T == struct);
-}
+enum isStruct(T) = is(T == struct);
 @safe pure nothrow unittest
 {
 	class AClass { }
@@ -60,10 +54,7 @@ enum isEnum(T) = is(T == enum);
 	static assert(!isEnum!(typeof(AFunction)), "Failed to determine that AFunction is not an enum!");
 }
 
-template isFunction(T)
-{
-	enum bool isFunction = is(T == function);
-}
+enum isFunction(T) = is(T == function);
 @safe pure nothrow unittest
 {
 	class AClass { }
@@ -81,12 +72,7 @@ template isFunction(T)
 	static assert(isFunction!(typeof(AFunction)), "Failed to determine that AFunction is a function!");
 }
 
-template isMemberClass(T, string member)
-{
-	import std.traits : Unqual;
-
-	enum bool isMemberClass = is(Unqual!(__traits(getMember, T.init, member)) == class);
-}
+enum isMemberClass(T, string member) = is(Dequal!(__traits(getMember, T.init, member)) == class);
 @safe pure nothrow unittest
 {
 	static class Outer
@@ -109,12 +95,7 @@ template isMemberClass(T, string member)
 	static assert(!isMemberClass!(Outer, "AField"), "Failed to determine that Outer.AField is not a class!");
 }
 
-template isMemberInterface(T, string member)
-{
-	import std.traits : Unqual;
-
-	enum bool isMemberInterface = is(Unqual!(__traits(getMember, T.init, member)) == interface);
-}
+enum isMemberInterface(T, string member) = is(Dequal!(__traits(getMember, T.init, member)) == interface);
 @safe pure nothrow unittest
 {
 	static class Outer
@@ -137,12 +118,7 @@ template isMemberInterface(T, string member)
 	static assert(!isMemberInterface!(Outer, "AField"), "Failed to determine that Outer.AField is not an interface!");
 }
 
-template isMemberStruct(T, string member)
-{
-	import std.traits : Unqual;
-
-	enum bool isMemberStruct = is(Unqual!(__traits(getMember, T.init, member)) == struct);
-}
+enum isMemberStruct(T, string member) = is(Dequal!(__traits(getMember, T.init, member)) == struct);
 @safe pure nothrow unittest
 {
 	static class Outer
@@ -165,12 +141,7 @@ template isMemberStruct(T, string member)
 	static assert(!isMemberStruct!(Outer, "AField"), "Failed to determine that Outer.AField is not a struct!");
 }
 
-template isMemberUnion(T, string member)
-{
-	import std.traits : Unqual;
-
-	enum bool isMemberUnion = is(Unqual!(__traits(getMember, T.init, member)) == union);
-}
+enum isMemberUnion(T, string member) = is(Dequal!(__traits(getMember, T.init, member)) == union);
 @safe pure nothrow unittest
 {
 	static class Outer
@@ -193,12 +164,7 @@ template isMemberUnion(T, string member)
 	static assert(!isMemberUnion!(Outer, "AField"), "Failed to determine that Outer.AField is not a union!");
 }
 
-template isMemberEnum(T, string member)
-{
-	import std.traits : Unqual;
-
-	enum bool isMemberEnum = is(Unqual!(__traits(getMember, T.init, member)) == enum);
-}
+enum isMemberEnum(T, string member) = is(Dequal!(__traits(getMember, T.init, member)) == enum);
 @safe pure nothrow unittest
 {
 	static class Outer
@@ -221,10 +187,7 @@ template isMemberEnum(T, string member)
 	static assert(!isMemberEnum!(Outer, "AField"), "Failed to determine that Outer.AField is not an enum!");
 }
 
-template isMemberFunction(T, string member)
-{
-	enum bool isMemberFunction = is(typeof(__traits(getMember, T.init, member)) == function);
-}
+enum isMemberFunction(T, string member) = is(typeof(__traits(getMember, T.init, member)) == function);
 @safe pure nothrow unittest
 {
 	static class Outer
@@ -322,6 +285,7 @@ template isMemberField(T, string member)
 	static assert(hasPublicDefaultConstructor!NonZeroParameterCountWithDefault, "Failed to determine that a class with a public constructor with one parameter with a default value has a public default constructor!");
 }
 
+// TODO: Unittest.
 @property T constructDefault(T)()
 	if (hasPublicDefaultConstructor!T)
 {
@@ -331,24 +295,29 @@ template isMemberField(T, string member)
 		return T();
 }
 
+// TODO: Unittest.
 @property auto getMemberValue(string member, T)(T val) @safe pure nothrow
 {
 	return __traits(getMember, val, member);
 }
 
+// TODO: Unittest.
 @property auto setMemberValue(string member, T, V)(ref T parent, V val) @safe pure nothrow
 {
 	mixin(`parent.` ~ member ~ ` = val;`);
 }
 
+// TODO: Unittest.
 alias MemberType(T, string member) = typeof(getDefaultMemberValue!(T, member));
 
+// TODO: Unittest.
 @property auto getDefaultMemberValue(T, string member)()
 	if (hasPublicDefaultConstructor!T)
 {
 	return __traits(getMember, constructDefault!T, member);
 }
 
+// TODO: Unittest.
 @property AttributeType getMemberAttribute(T, string member, AttributeType)() @safe nothrow
 {
 	foreach (at; __traits(getAttributes, __traits(getMember, T, member)))
@@ -359,6 +328,7 @@ alias MemberType(T, string member) = typeof(getDefaultMemberValue!(T, member));
 	return AttributeType.init;
 }
 
+// TODO: Unittest.
 @property bool memberHasAttribute(T, string member, AttributeType)() @safe nothrow
 {
 	foreach (at; __traits(getAttributes, __traits(getMember, T, member)))
@@ -369,6 +339,7 @@ alias MemberType(T, string member) = typeof(getDefaultMemberValue!(T, member));
 	return false;
 }
 
+// TODO: Unittest.
 @property bool hasAttribute(T, AttributeType)() @safe pure nothrow
 {
 	foreach (at; __traits(getAttributes, T))
@@ -379,6 +350,7 @@ alias MemberType(T, string member) = typeof(getDefaultMemberValue!(T, member));
 	return false;
 }
 
+// TODO: Unittest.
 template isOneOf(T, Possibilities...)
 	if (Possibilities.length > 0)
 {

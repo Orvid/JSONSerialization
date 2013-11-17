@@ -638,8 +638,8 @@ final class JSONSerializationFormat : SerializationFormat
 		if (isNativeSerializationSupported!T && isArray!T && isOneOf!(ForeachType!T, char, wchar, dchar))
 	{
 		alias TokenType = PT.TokenType;
-		
-		import std.algorithm : canFind;
+
+		import std.performance.string : contains;
 		import std.conv : to;
 		
 		parser.expect!(TokenType.String);
@@ -648,7 +648,7 @@ final class JSONSerializationFormat : SerializationFormat
 		// TODO: Account for strings that are part of a larger string, as well as strings that
 		//       can be unescaped in-place. Also look into using alloca to allocate the required
 		//       space on the stack for the intermediate string representation.
-		if (!strVal.canFind('\\'))
+		if (!strVal.contains!('\\'))
 		{
 			val = to!T(strVal);
 		}

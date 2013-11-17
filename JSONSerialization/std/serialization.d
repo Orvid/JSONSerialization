@@ -125,7 +125,7 @@ protected:
 				if (!isMemberOptional!(T, m))
 					expectedArr[i] = true;
 			}
-			ret.put(`private static immutable expectedFields = BitArray!`);
+			ret.put(`private enum expectedFieldsEnum = BitArray!`);
 			ret.put(to!string(membersLength));
 			ret.put(`([`);
 			foreach (i, d; expectedArr.data)
@@ -136,6 +136,7 @@ protected:
 				ret.put(to!string(d, 16));
 			}
 			ret.put(`]);`);
+			ret.put(`private static immutable expectedFields = expectedFieldsEnum;`);
 
 			return ret.data;
 		}
@@ -149,9 +150,20 @@ protected:
 
 		void ensureFullySerialized() @safe pure
 		{
-			fieldMarkers &= expectedFields;
-			if (fieldMarkers != expectedFields)
-				throw new Exception("A required field was not deserialized!");
+			// TODO: A bug in DMD means that expectedFields isn't accessible in
+			//       CTFE. Once that's fixed, change this.
+			if (__ctfe)
+			{
+				fieldMarkers &= expectedFieldsEnum;
+				if (fieldMarkers != expectedFieldsEnum)
+					throw new Exception("A required field was not deserialized!");
+			}
+			else
+			{
+				fieldMarkers &= expectedFields;
+				if (fieldMarkers != expectedFields)
+					throw new Exception("A required field was not deserialized!");
+			}
 		}
 	}
 

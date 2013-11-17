@@ -3,13 +3,14 @@ module std.performance.bitmanip;
 import core.bitop : bt, bts, btr;
 import std.traitsExt : Dequal;
 
+// TODO: Unittest.
 struct BitArray(int length)
 {
 	enum bitsPerSizeT = size_t.sizeof * 8;
 	enum dataLength = (length + (bitsPerSizeT - 1)) / bitsPerSizeT;
 	size_t[dataLength] data;
 
-	this(size_t[dataLength] initialData)
+	this(scope size_t[dataLength] initialData)
 	{
 		this.data = initialData;
 	}
@@ -54,7 +55,21 @@ struct BitArray(int length)
 		return b;
 	}
 
-	BitArray!length opOpAssign(string op : "&", Barr)(ref Barr a2)
+	BitArray!length opOpAssign(string op : "&", Barr)(ref Barr a2) @safe pure nothrow
+		if (is(Dequal!Barr == BitArray!length))
+	{
+		static if (dataLength == 1)
+		{
+			data[0] &= a2.data[0];
+		}
+		else
+		{
+			this.data[] &= a2.data[];
+		}
+		return this;
+	}
+	
+	BitArray!length opOpAssign(string op : "&", Barr)(scope Barr a2) @safe pure nothrow
 		if (is(Dequal!Barr == BitArray!length))
 	{
 		static if (dataLength == 1)
@@ -90,6 +105,33 @@ struct BitArray(int length)
 			{
 				import std.c.string : memcmp;
 
+				return !memcmp(this.data.ptr, a2.data.ptr, dataLength);
+			}
+		}
+	}
+	
+	bool opEquals(Barr)(scope Barr a2) @trusted pure nothrow
+		if (is(Dequal!Barr == BitArray!length))
+	{
+		static if (dataLength == 1)
+		{
+			return data[0] == a2.data[0];
+		}
+		else
+		{
+			if (__ctfe)
+			{
+				for (auto i = 0; i < dataLength; i++)
+				{
+					if (data[i] != a2.data[i])
+						return false;
+				}
+				return true;
+			}
+			else
+			{
+				import std.c.string : memcmp;
+				
 				return !memcmp(this.data.ptr, a2.data.ptr, dataLength);
 			}
 		}
