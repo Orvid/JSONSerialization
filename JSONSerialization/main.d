@@ -11,6 +11,9 @@ enum ObjectCount = 100000;
 
 void main(string[] args)
 {
+	import core.memory : GC;
+	GC.disable();
+
 	@serializable static final class SimpleObject
 	{
 		int id;
