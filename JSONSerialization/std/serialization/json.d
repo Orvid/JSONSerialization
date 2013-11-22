@@ -5,6 +5,9 @@ version = MaxPerformance;
 import std.range : isOutputRange;
 import std.serialization : BinaryOutputRange, SerializationFormat;
 
+// TODO: Add support for associative arrays.
+// TODO: Add support for unions.
+// TODO: Add support for (de)serialization via std.variadic
 final class JSONSerializationFormat : SerializationFormat
 {
 	import std.range : isInputRange;
@@ -32,13 +35,13 @@ final class JSONSerializationFormat : SerializationFormat
 			else static if (isSerializable!T)
 			{
 				enum isNativeSerializationSupported =
-					isClass!T
-						|| isStruct!T
-						|| isOneOf!(T, byte, ubyte, short, ushort, int, uint, long, ulong/*, cent, ucent*/)
-						|| isOneOf!(T, float, double, real)
-						|| is(T == bool)
-						|| isOneOf!(T, char, wchar, dchar)
-						;
+					   isClass!T
+					|| isStruct!T
+					|| isOneOf!(T, byte, ubyte, short, ushort, int, uint, long, ulong/*, cent, ucent*/)
+					|| isOneOf!(T, float, double, real)
+					|| is(T == bool)
+					|| isOneOf!(T, char, wchar, dchar)
+				;
 			}
 			else
 				enum isNativeSerializationSupported = false;
@@ -730,10 +733,107 @@ T fromJSON(T)(string val) @safe
 
 @safe unittest
 {
+	enum Test
+	{
+		PrivateConstructor,// = "A private constructor was allowed for a serializable class while attempting to %s it!",
+		NonSerializable,// = "A class not marked with @serializable was allowed while attempting to %s it!",
+		OptionalField,// = "Failed to correctly %s a class with an optional field!",
+		NonSerializedField,
+		SerializeAsField,
+		ByteField,
+		UByteField,
+		ShortField,
+		UShortField,
+		IntField,
+		UIntField,
+		LongField,
+		ULongField,
+		CentField,
+		UCentField,
+		FloatField,
+		DoubleField,
+		RealField,
+		CharField,
+		WCharField,
+		DCharField,
+		StringField,
+		WStringField,
+		WCharArrayField,
+		ConstWCharArrayField,
+		DStringField,
+		FalseBoolField,
+		TrueBoolField,
+		NullObjectField,
+		ClassField,
+		ClassArrayField,
+		IntArrayField,
+		StructParent,
+		StructField,
+		ParsableClassField,
+		EnumField,
+	}
 	import std.algorithm : equal;
 	import std.conv : to;
 	import std.serialization : nonSerialized, optional, serializeAs, serializable;
 	import std.testing : assertStaticAndRuntime;
+
+	static void runSerializationTests(T, alias serializeDelegate, alias deserializeDelegate)(T[][Test] tests)
+	{
+		@serializable static class PrivateConstructor { private this() { } @optional int A = 3; int B = 5; }
+		static class NonSerializable { @optional int A = 3; int B = 5; }
+		@serializable static class OptionalField { @optional int A = 3; int B = 5; }
+
+		foreach (k, v; tests)
+		{
+			final switch (k)
+			{
+				case Test.PrivateConstructor:
+				case Test.NonSerializable:
+				case Test.OptionalField:
+				case Test.NonSerializedField:
+				case Test.SerializeAsField:
+				case Test.ByteField:
+				case Test.UByteField:
+				case Test.ShortField:
+				case Test.UShortField:
+				case Test.IntField:
+				case Test.UIntField:
+				case Test.LongField:
+				case Test.ULongField:
+				case Test.CentField:
+				case Test.UCentField:
+				case Test.FloatField:
+				case Test.DoubleField:
+				case Test.RealField:
+				case Test.CharField:
+				case Test.WCharField:
+				case Test.DCharField:
+				case Test.StringField:
+				case Test.WStringField:
+				case Test.WCharArrayField:
+				case Test.ConstWCharArrayField:
+				case Test.DStringField:
+				case Test.FalseBoolField:
+				case Test.TrueBoolField:
+				case Test.NullObjectField:
+				case Test.ClassField:
+				case Test.ClassArrayField:
+				case Test.IntArrayField:
+				case Test.StructParent:
+				case Test.StructField:
+				case Test.ParsableClassField:
+				case Test.EnumField:
+					break;
+			}
+		}
+		deserializeDelegate(`{"B":5}`, cast(OptionalField)null);
+	}
+
+	runSerializationTests!(string, (obj) => toJSON(obj), (val, targetType) => fromJSON!(typeof(targetType))(val))([
+		Test.PrivateConstructor: [`{"B":5}`],
+		Test.NonSerializable: [`{"B":5}`],
+		Test.OptionalField: [`{"B":5}`],
+	]);
 
 	@serializable static class PrivateConstructor { private this() { } @optional int A = 3; int B = 5; }
 	assertStaticAndRuntime!(!__traits(compiles, { assert(toJSON(new PrivateConstructor()) == `{"B":5}`); }), "A private constructor was allowed for a serializable class while attempting serialization!");

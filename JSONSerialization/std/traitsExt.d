@@ -11,7 +11,8 @@ enum isClass(T) = is(T == class);
 	interface AnInterface { }
 	struct AStruct { }
 	union AUnion { }
-	enum AnEnum;
+	// TODO: Fix this when the bug is fixed.
+	enum AnEnum { A }
 	void AFunction() { }
 
 	static assert(isClass!AClass, "Failed to determine that AClass is a class!");
@@ -29,7 +30,8 @@ enum isStruct(T) = is(T == struct);
 	interface AnInterface { }
 	struct AStruct { }
 	union AUnion { }
-	enum AnEnum;
+	// TODO: Fix this when the bug is fixed.
+	enum AnEnum { A }
 	void AFunction() { }
 
 	static assert(!isStruct!AClass, "Failed to determine that AClass is not a struct!");
@@ -47,7 +49,8 @@ enum isEnum(T) = is(T == enum);
 	interface AnInterface { }
 	struct AStruct { }
 	union AUnion { }
-	enum AnEnum;
+	// TODO: Change this when the bug is fixed.
+	enum AnEnum { A }
 	void AFunction() { }
 	
 	static assert(!isEnum!AClass, "Failed to determine that AClass is not an enum!");
@@ -65,7 +68,8 @@ enum isFunction(T) = is(T == function);
 	interface AnInterface { }
 	struct AStruct { }
 	union AUnion { }
-	enum AnEnum;
+	// TODO: Fix this when the bug is fixed.
+	enum AnEnum { A }
 	void AFunction() { }
 	
 	static assert(!isFunction!AClass, "Failed to determine that AClass is not a function!");
@@ -85,7 +89,8 @@ enum isMemberClass(T, string member) = is(Dequal!(__traits(getMember, T.init, me
 		interface AnInterface { }
 		struct AStruct { }
 		union AUnion { }
-		enum AnEnum;
+		// TODO: Fix this when the bug is fixed.
+		enum AnEnum { A }
 		void AFunction() { }
 		int AField;
 	}
@@ -108,7 +113,8 @@ enum isMemberInterface(T, string member) = is(Dequal!(__traits(getMember, T.init
 		interface AnInterface { }
 		struct AStruct { }
 		union AUnion { }
-		enum AnEnum;
+		// TODO: Fix this when the bug is fixed.
+		enum AnEnum { A }
 		void AFunction() { }
 		int AField;
 	}
@@ -131,7 +137,8 @@ enum isMemberStruct(T, string member) = is(Dequal!(__traits(getMember, T.init, m
 		interface AnInterface { }
 		struct AStruct { }
 		union AUnion { }
-		enum AnEnum;
+		// TODO: Fix this when the bug is fixed.
+		enum AnEnum { A }
 		void AFunction() { }
 		int AField;
 	}
@@ -154,7 +161,8 @@ enum isMemberUnion(T, string member) = is(Dequal!(__traits(getMember, T.init, me
 		interface AnInterface { }
 		struct AStruct { }
 		union AUnion { }
-		enum AnEnum;
+		// TODO: Fix this when the bug is fixed.
+		enum AnEnum { A }
 		void AFunction() { }
 		int AField;
 	}
@@ -177,7 +185,8 @@ enum isMemberEnum(T, string member) = is(Dequal!(__traits(getMember, T.init, mem
 		interface AnInterface { }
 		struct AStruct { }
 		union AUnion { }
-		enum AnEnum;
+		// TODO: Fix this when the bug is fixed.
+		enum AnEnum { A }
 		void AFunction() { }
 		int AField;
 	}
@@ -234,7 +243,8 @@ template isMemberField(T, string member)
 		interface AnInterface { }
 		struct AStruct { }
 		union AUnion { }
-		enum AnEnum;
+		// TODO: Fix this when the bug is fixed.
+		enum AnEnum { A }
 		void AFunction() { }
 		int AField;
 	}

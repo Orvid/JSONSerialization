@@ -1,11 +1,18 @@
 module std.serialization.core;
 
+import std.range : isInputRange, isOutputRange;
+
 enum optional;
 enum serializable;
 enum nonSerialized;
 struct serializeAs { string Name; }
 
-import std.range : isOutputRange;
+struct BinaryInputRange(IR)
+	if (isInputRange!(IR, ubyte[]))
+{
+
+}
+
 struct BinaryOutputRange(OR)
 	if (isOutputRange!(OR, ubyte[]))
 {
@@ -104,7 +111,8 @@ protected:
 		import std.performance.bitmanip : BitArray;
 		
 		alias members = membersToSerialize!T;
-		// BUG: Required due to a bug that causes compilation to fail
+		// TODO: This is currently required due to
+		// an issue with evaluation order and templates.
 		enum membersLength = members.length;
 		
 		mixin(genDeclarations());
@@ -245,6 +253,8 @@ protected:
 			static void serialize(T)(ref BinaryOutputRange!OR output, T val) @trusted
 				if (!isNativeSerializationSupported!T && is(Dequal!T == T))
 			{
+				import std.conv : to;
+				import std.traits : isBuiltinType;
 				import std.traitsExt : isEnum;
 				
 				// TODO: Figure out a way that this can be done without needing to
@@ -254,10 +264,8 @@ protected:
 				{
 					serialize(output, val.toString());
 				}
-				else static if (isEnum!T)
+				else static if ((isBuiltinType!T || isEnum!T) && __traits(compiles, to!string(cast(T)T.init)))
 				{
-					import std.conv : to;
-					
 					serialize(output, to!string(val));
 				}
 				else
@@ -280,6 +288,8 @@ protected:
 			static T deserializeValue(T, PT)(ref PT ctx) @safe
 				if (!isNativeSerializationSupported!T && is(Dequal!T == T) && isDeserializationContext!PT)
 			{
+				import std.conv : to;
+				import std.traits : isBuiltinType;
 				import std.traitsExt : isEnum;
 				
 				static if (__traits(compiles, (cast(T)T.init).toString()) && __traits(compiles, T.parse("")))
@@ -288,10 +298,8 @@ protected:
 					ctx.consume();
 					return v;
 				}
-				else static if (isEnum!T)
+				else static if (__traits(compiles, to!T("")))
 				{
-					import std.conv : to;
-					
 					T v = to!T(ctx.current.stringValue);
 					ctx.consume();
 					return v;

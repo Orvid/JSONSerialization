@@ -5,8 +5,9 @@ import core.memory : GC;
 import std.datetime : StopWatch;
 import std.performance.array : Appender;
 import std.serialization : serializable;
-import std.serialization.json : fromJSON, toJSON;
 import std.serialization.bson : fromBSON, toBSON;
+import std.serialization.json : fromJSON, toJSON;
+import std.serialization.xml : fromXML, toXML;
 import std.stdio;
 
 enum ObjectCount = 100000;
@@ -56,6 +57,7 @@ static void runBenchmark(string serializationFormatName, alias serializeFunc, al
 		totalPayload += intermediateArray[i].length;
 		ret.clear();
 	}
+	writefln("\tTook %s ms (%s ms / %s/sec) to serialize 100k SimpleObjects with an average payload of %s bytes (%s).", swSerialize.peek().msecs, cast(real)swSerialize.peek().msecs / ObjectCount, cast(ulong)(cast(real)ObjectCount * (1000.0 / swSerialize.peek().msecs)), cast(real)totalPayload / ObjectCount, totalPayload);
 	
 	StopWatch swDeserialize;
 	foreach (i, val; intermediateArray)
@@ -64,8 +66,7 @@ static void runBenchmark(string serializationFormatName, alias serializeFunc, al
 		destinationArray[i] = deserializeFunc(val);
 		swDeserialize.stop();
 	}
-	
-	writefln("\tTook %s ms (%s ms / %s/sec) to serialize 100k SimpleObjects with an average payload of %s bytes (%s).", swSerialize.peek().msecs, cast(real)swSerialize.peek().msecs / ObjectCount, cast(ulong)(cast(real)ObjectCount * (1000.0 / swSerialize.peek().msecs)), cast(real)totalPayload / ObjectCount, totalPayload);
+
 	writefln("\tTook %s ms (%s ms / %s/sec) to deserialize 100k SimpleObjects", swDeserialize.peek().msecs, cast(real)swDeserialize.peek().msecs / ObjectCount, cast(ulong)(cast(real)ObjectCount * (1000.0 / swDeserialize.peek().msecs)));
 	writeln();
 	
@@ -87,5 +88,6 @@ void main(string[] args)
 
 	runBenchmark!("JSON", (so, ref ret) => toJSON(so, ret), (val) => fromJSON!SimpleObject(cast(string)val))(sourceArray, intermediateArray, destinationArray);
 	runBenchmark!("BSON", (so, ref ret) => toBSON(so, ret), (val) => fromBSON!SimpleObject(val))(sourceArray, intermediateArray, destinationArray);
+	runBenchmark!("XML",  (so, ref ret) => toXML(so, ret),  (val) => fromXML!SimpleObject(cast(string)val))(sourceArray, intermediateArray, destinationArray);
 }
 
