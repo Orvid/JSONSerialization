@@ -568,59 +568,54 @@ version (unittest)
 				else static if (k == Test.WStringField)
 				{
 					@serializable static class WStringField { wstring A = "Hello!\b\"\u08A8\U0010FFFF"w; }
-					assertStaticAndRuntime!(serialize(new WStringField()) == `{"A":"Hello!\b\"\u08A8\x0010FFFF"}`, "Failed to correctly serialize a wstring field!");
-					assertStaticAndRuntime!(deserialize!WStringField(`{"A":"Hello!\b\"\u08A8\x0010FFFF"}`).A == "Hello!\b\"\u08A8\U0010FFFF"w, "Failed to correctly deserialize a wstring field!");
+					assertStaticAndRuntime!(serialize(new WStringField()) == str, "Failed to correctly serialize a wstring field!");
+					assertStaticAndRuntime!(deserialize!WStringField(str).A == "Hello!\b\"\u08A8\U0010FFFF"w, "Failed to correctly deserialize a wstring field!");
 				}
 				else static if (k == Test.WCharArrayField)
 				{
 					() @trusted {
 						@serializable static class WCharArrayField { wchar[] A = cast(wchar[])"Hello!\b\"\u08A8\U0010FFFF"w; }
-						assertStaticAndRuntime!(serialize(new WCharArrayField()) == `{"A":"Hello!\b\"\u08A8\x0010FFFF"}`, "Failed to correctly serialize a wchar[] field!");
-						assertStaticAndRuntime!(deserialize!WCharArrayField(`{"A":"Hello!\b\"\u08A8\x0010FFFF"}`).A.equal(cast(wchar[])"Hello!\b\"\u08A8\U0010FFFF"w), "Failed to correctly deserialize a wchar[] field!");
+						assertStaticAndRuntime!(serialize(new WCharArrayField()) == str, "Failed to correctly serialize a wchar[] field!");
+						assertStaticAndRuntime!(deserialize!WCharArrayField(str).A.equal(cast(wchar[])"Hello!\b\"\u08A8\U0010FFFF"w), "Failed to correctly deserialize a wchar[] field!");
 					}();
 				}
 				else static if (k == Test.ConstWCharArrayField)
 				{
 					@serializable static class ConstWCharArrayField { const(wchar)[] A = "Hello!\b\"\u08A8\U0010FFFF"w; }
-					assertStaticAndRuntime!(serialize(new ConstWCharArrayField()) == `{"A":"Hello!\b\"\u08A8\x0010FFFF"}`, "Failed to correctly serialize a const(wchar)[] field!");
-					assertStaticAndRuntime!(deserialize!ConstWCharArrayField(`{"A":"Hello!\b\"\u08A8\x0010FFFF"}`).A.equal("Hello!\b\"\u08A8\U0010FFFF"w), "Failed to correctly deserialize a const(wchar)[] field!");
+					assertStaticAndRuntime!(serialize(new ConstWCharArrayField()) == str, "Failed to correctly serialize a const(wchar)[] field!");
+					assertStaticAndRuntime!(deserialize!ConstWCharArrayField(str).A.equal("Hello!\b\"\u08A8\U0010FFFF"w), "Failed to correctly deserialize a const(wchar)[] field!");
 				}
 				else static if (k == Test.DStringField)
 				{
 					@serializable static class DStringField { dstring A = "Hello!\b\"\u08A8\U0010FFFF"d; }
-					assertStaticAndRuntime!(serialize(new DStringField()) == `{"A":"Hello!\b\"\u08A8\x0010FFFF"}`, "Failed to correctly serialize a dstring field!");
-					assertStaticAndRuntime!(deserialize!DStringField(`{"A":"Hello!\b\"\u08A8\x0010FFFF"}`).A == "Hello!\b\"\u08A8\U0010FFFF"d, "Failed to correctly deserialize a dstring field!");
+					assertStaticAndRuntime!(serialize(new DStringField()) == str, "Failed to correctly serialize a dstring field!");
+					assertStaticAndRuntime!(deserialize!DStringField(str).A == "Hello!\b\"\u08A8\U0010FFFF"d, "Failed to correctly deserialize a dstring field!");
 				}
 				else static if (k == Test.FalseBoolField)
 				{
 					@serializable static class FalseBoolField { bool A; auto Init() { A = false; return this; } }
-					assertStaticAndRuntime!(serialize((new FalseBoolField()).Init()) == `{"A":false}`, "Failed to correctly serialize a bool field set to false!");
-					assertStaticAndRuntime!(deserialize!FalseBoolField(`{"A":false}`).A == false, "Failed to correctly deserialize a bool field set to false!");
-					assertStaticAndRuntime!(deserialize!FalseBoolField(`{"A":"false"}`).A == false, "Failed to correctly deserialize a bool field set to the quoted value 'false'!");
+					assertStaticAndRuntime!(serialize((new FalseBoolField()).Init()) == str, "Failed to correctly serialize a bool field set to false!");
+					assertStaticAndRuntime!(deserialize!FalseBoolField(str).A == false, "Failed to correctly deserialize a bool field set to false!");
 				}
 				else static if (k == Test.TrueBoolField)
 				{
 					@serializable static class TrueBoolField { bool A; auto Init() { A = true; return this; } }
-					assertStaticAndRuntime!(serialize((new TrueBoolField()).Init()) == `{"A":true}`, "Failed to correctly serialize a bool field set to true!");
-					assertStaticAndRuntime!(deserialize!TrueBoolField(`{"A":true}`).A == true, "Failed to correctly deserialize a bool field set to true!");
-					assertStaticAndRuntime!(deserialize!TrueBoolField(`{"A":"true"}`).A == true, "Failed to correctly deserialize a bool field set to the quoted value 'true'!");
-					assertStaticAndRuntime!(deserialize!TrueBoolField(`{"A":"True"}`).A == true, "Failed to correctly deserialize a bool field set to the quoted value 'True'!");
-					assertStaticAndRuntime!(deserialize!TrueBoolField(`{"A":"tRUe"}`).A == true, "Failed to correctly deserialize a bool field set to the quoted value 'tRUe'!");
+					assertStaticAndRuntime!(serialize((new TrueBoolField()).Init()) == str, "Failed to correctly serialize a bool field set to true!");
+					assertStaticAndRuntime!(deserialize!TrueBoolField(str).A == true, "Failed to correctly deserialize a bool field set to true!");
 				}
 				else static if (k == Test.NullObjectField)
 				{
 					@serializable static class NullObjectField { Object A = null; }
-					assertStaticAndRuntime!(serialize(new NullObjectField()) == `{"A":null}`, "Failed to correctly serialize an Object field set to null!");
-					assertStaticAndRuntime!(deserialize!NullObjectField(`{"A":null}`).A is null, "Failed to correctly deserialize an Object field set to null!"); 
-					assertStaticAndRuntime!(deserialize!NullObjectField(`{"A":"null"}`).A is null, "Failed to correctly deserialize an Object field set to the quoted value 'null'!"); 
+					assertStaticAndRuntime!(serialize(new NullObjectField()) == str, "Failed to correctly serialize an Object field set to null!");
+					assertStaticAndRuntime!(deserialize!NullObjectField(str).A is null, "Failed to correctly deserialize an Object field set to null!"); 
 				}
 				else static if (k == Test.ClassField)
 				{
 					@serializable static class SerializeAsField2 { int A = 3; @serializeAs(`D`) int B = 5; @nonSerialized int D = 7; }
 					@serializable static class ClassField { SerializeAsField2 A = new SerializeAsField2(); }
-					assertStaticAndRuntime!(serialize(new ClassField()) == `{"A":{"A":3,"D":5}}`, "Failed to correctly serialize a class field!");
+					assertStaticAndRuntime!(serialize(new ClassField()) == str, "Failed to correctly serialize a class field!");
 					assertStaticAndRuntime!(() {
-						auto cfa = deserialize!ClassField(`{"A":{"A":3,"D":5}}`);
+						auto cfa = deserialize!ClassField(str);
 						assert(cfa.A);
 						assert(cfa.A.A == 3);
 						assert(cfa.A.B == 5);
@@ -632,9 +627,9 @@ version (unittest)
 				{
 					@serializable static class SerializeAsField3 { int A = 3; @serializeAs(`D`) int B = 5; @nonSerialized int D = 7; }
 					@serializable static class ClassArrayField { SerializeAsField3[] A = [new SerializeAsField3(), new SerializeAsField3()]; }
-					assertStaticAndRuntime!(serialize(new ClassArrayField()) == `{"A":[{"A":3,"D":5},{"A":3,"D":5}]}`, "Failed to correctly serialize a class array field!");
+					assertStaticAndRuntime!(serialize(new ClassArrayField()) == str, "Failed to correctly serialize a class array field!");
 					assertStaticAndRuntime!(() {
-						auto cfa = deserialize!ClassArrayField(`{"A":[{"A":3,"D":5},{"A":3,"D":5}]}`);
+						auto cfa = deserialize!ClassArrayField(str);
 						assert(cfa.A);
 						assert(cfa.A.length == 2);
 						assert(cfa.A[0].A == 3);
@@ -647,21 +642,21 @@ version (unittest)
 				else static if (k == Test.IntArrayField)
 				{
 					@serializable static class IntArrayField { int[] A = [-3, 6, 190]; }
-					assertStaticAndRuntime!(serialize(new IntArrayField()) == `{"A":[-3,6,190]}`, "Failed to correctly serialize an int[] field!");
-					assertStaticAndRuntime!(deserialize!IntArrayField(`{"A":[-3,6,190]}`).A.equal([-3, 6, 190]), "Failed to correctly deserialize an int[] field!");
+					assertStaticAndRuntime!(serialize(new IntArrayField()) == str, "Failed to correctly serialize an int[] field!");
+					assertStaticAndRuntime!(deserialize!IntArrayField(str).A.equal([-3, 6, 190]), "Failed to correctly deserialize an int[] field!");
 				}
 				else static if (k == Test.StructParent)
 				{
 					@serializable static struct StructParent { int A = 3; }
-					assertStaticAndRuntime!(serialize(StructParent()) == `{"A":3}`, "Failed to correctly serialize a structure!");
-					assertStaticAndRuntime!(deserialize!StructParent(`{"A":3}`).A == 3, "Failed to correctly deserialize a structure!");
+					assertStaticAndRuntime!(serialize(StructParent()) == str, "Failed to correctly serialize a structure!");
+					assertStaticAndRuntime!(deserialize!StructParent(str).A == 3, "Failed to correctly deserialize a structure!");
 				}
 				else static if (k == Test.StructField)
 				{
 					@serializable static struct StructParent2 { int A = 3; }
 					@serializable static struct StructField { StructParent2 A; }
-					assertStaticAndRuntime!(serialize(StructField()) == `{"A":{"A":3}}`, "Failed to correctly serialize a struct field!");
-					assertStaticAndRuntime!(deserialize!StructField(`{"A":{"A":4}}`).A.A == 4, "Failed to correctly deserialize a struct field!");
+					assertStaticAndRuntime!(serialize(StructField()) == str, "Failed to correctly serialize a struct field!");
+					assertStaticAndRuntime!(deserialize!StructField(str).A.A == 4, "Failed to correctly deserialize a struct field!");
 				}
 				else static if (k == Test.ParsableClassField)
 				{
