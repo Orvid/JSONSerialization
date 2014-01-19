@@ -5,7 +5,6 @@ import std.serialization : BinaryOutputRange, SerializationFormat;
 
 // TODO: Add support for associative arrays.
 // TODO: Add support for unions.
-// TODO: Add support for (de)serialization via std.variadic.
 // TODO: Add support for Tuple's.
 // TODO: Add support for private members.
 // TODO: Provide a nice error message when trying to deserialize a member marked as nonSerialized.
@@ -29,10 +28,10 @@ final class JSONSerializationFormat : SerializationFormat
 	{
 		static if (is(Dequal!T == T))
 		{
-			static if (isArray!T)
-			{
+			static if (isDynamicType!T)
+				enum isNativeSerializationSupported = true;
+			else static if (isArray!T)
 				enum isNativeSerializationSupported = isNativeSerializationSupported!(ForeachType!T);
-			}
 			else static if (isSerializable!T)
 			{
 				enum isNativeSerializationSupported =
@@ -61,7 +60,7 @@ final class JSONSerializationFormat : SerializationFormat
 
 		/// ditto
 		static void serialize(T)(ref BinaryOutputRange!OR output, T val) @safe
-			if (isNativeSerializationSupported!T && (isClass!T || isStruct!T))
+			if (isNativeSerializationSupported!T && (isClass!T || isStruct!T) && !isDynamicType!T)
 		{
 			static if (isClass!T)
 			{
@@ -95,6 +94,56 @@ final class JSONSerializationFormat : SerializationFormat
 		}
 
 		/// ditto
+		static void serialize(T)(ref BinaryOutputRange!OR output, T val) @trusted
+			if (isNativeSerializationSupported!T && isDynamicType!T)
+		{
+			if (val.isTypeBoolean)
+				serialize(output, cast(bool)val);
+			else if (val.isTypeString)
+				serialize(output, cast(string)val);
+			else if (val.isTypeArray)
+			{
+				output.put('[');
+				for (size_t i = 0; i < cast(size_t)val.length; i++)
+				{
+					if (i != 0)
+						output.put(',');
+					serialize(output, val[i]);
+				}
+				output.put(']');
+			}
+			else if (val.isTypeObject)
+			{
+				if (!val)
+					output.put("null");
+				else
+				{
+					output.put('{');
+					size_t i = 0;
+					foreach (k, v; val)
+					{
+						if (i != 0)
+							output.put(',');
+						serialize(output, k);
+						output.put(':');
+						serialize(output, v);
+						i++;
+					}
+					output.put('}');
+				}
+			}
+			else if (val.isTypeNumeric)
+			{
+				if (val.isTypeIntegral)
+					serialize(output, cast(long)val);
+				else
+					serialize(output, cast(real)val);
+			}
+			else
+				output.put(`"<unknown>"`);
+		}
+
+		/// ditto
 		static void serialize(T)(ref BinaryOutputRange!OR output, T val) @safe
 			if (isNativeSerializationSupported!T && isOneOf!(T, byte, ubyte, short, ushort, int, uint, long, ulong/*, cent, ucent*/))
 		{
@@ -108,9 +157,12 @@ final class JSONSerializationFormat : SerializationFormat
 		static void serialize(T)(ref BinaryOutputRange!OR output, T val) @trusted
 			if (isNativeSerializationSupported!T && isOneOf!(T, float, double, real))
 		{
-			import std.conv : to;
-			
-			output.put(to!string(val));
+			import std.string : format;
+
+			if (cast(T)cast(long)val == val)
+				serialize(output, cast(long)val);
+			else
+				output.put(format("%.17f", val));
 		}
 
 		/// ditto
@@ -268,6 +320,10 @@ final class JSONSerializationFormat : SerializationFormat
 		this(Range inRange)
 		{
 			input = inRange;
+			// Check for UTF-8 headers.
+			if (input.length >= 3 && input[0..3] == x"EF BB BF")
+				input = input[3..$];
+			// TODO: Check for other UTF versions
 			consume();
 		}
 		
@@ -291,6 +347,7 @@ final class JSONSerializationFormat : SerializationFormat
 		
 		void consume() @safe pure
 		{
+		Restart:
 			if (!input.length)
 			{
 				current = Token(TokenType.EOF);
@@ -303,8 +360,8 @@ final class JSONSerializationFormat : SerializationFormat
 				switch (input[curI])
 				{
 					case ' ', '\t', '\v', '\r', '\n':
-						curI++;
-						break;
+						input = input[1..$];
+						goto Restart;
 					case '{':
 						current = Token(TokenType.LCurl);
 						goto Return;
@@ -508,10 +565,109 @@ final class JSONSerializationFormat : SerializationFormat
 		input = input[readLength..$];
 		return to!C(decoded);
 	}
-	
+
+	private static T deserializeValue(T, PT)(ref PT parser) @safe
+		if (isNativeSerializationSupported!T && isDynamicType!T)
+	{
+		return deserializeValue!T(parser, (name, val) => val);
+	}
+
+	private static T deserializeValue(T, PT)(ref PT parser, T delegate(string, T) callback) @trusted
+		if (isNativeSerializationSupported!T && isDynamicType!T)
+	{
+		import std.performance.conv : to;
+		import std.performance.string : contains;
+
+		alias TokenType = PT.TokenType;
+		T v;
+
+		switch (parser.current.type)
+		{
+			case TokenType.LCurl:
+				parser.consume();
+				T[string] tmp;
+				v = tmp;
+				bool first = true;
+				if (parser.current.type != TokenType.RCurl) do
+				{
+					if (!first) // The fact we've got here means the current token MUST be a comma.
+						parser.consume();
+					
+					parser.expect!(TokenType.String);
+					string fieldName = parser.current.stringValue;
+					parser.consume();
+					parser.expect!(TokenType.Colon);
+					parser.consume();
+					T tmpVal = deserializeValue!T(parser);
+					v[fieldName] = callback(fieldName, tmpVal);
+
+					first = false;
+				} while (parser.current.type == TokenType.Comma);
+				
+				parser.expect!(TokenType.RCurl);
+				parser.consume();
+				break;
+			case TokenType.LSquare:
+				parser.consume();
+				string[] tmp;
+				v = tmp;
+				size_t i = 0;
+				if (parser.current.type != TokenType.RSquare) do
+				{
+					if (i != 0) // The fact we got here means that the current token MUST be a comma.
+						parser.consume();
+
+					v[i] = deserializeValue!T(parser);
+					i++;
+				} while (parser.current.type == TokenType.Comma);
+				parser.expect!(TokenType.RSquare);
+				parser.consume();
+				break;
+			case TokenType.Number:
+				if (parser.current.stringValue.contains!('.'))
+					v = to!real(parser.current.stringValue);
+				else
+					v = to!long(parser.current.stringValue);
+				parser.consume();
+				break;
+			case TokenType.String:
+				string strVal = parser.current.stringValue;
+				if (strVal.contains!('\\'))
+				{
+					dchar[] dst = new dchar[strVal.length];
+					size_t i;
+					while (strVal.length > 0)
+					{
+						dst[i] = getCharacter!dchar(strVal);
+						i++;
+					}
+					
+					strVal = to!string(dst[0..i]);
+				}
+				v = strVal;
+				parser.consume();
+				break;
+			case TokenType.True:
+				parser.consume();
+				v = true;
+				break;
+			case TokenType.False:
+				parser.consume();
+				v = false;
+				break;
+			case TokenType.Null:
+				parser.consume();
+				v = null;
+				break;
+
+			default:
+				throw new Exception("Unknown token type!");
+		}
+		return callback("", v);
+	}
 	
 	private static T deserializeValue(T, PT)(ref PT parser) @trusted
-		if (isNativeSerializationSupported!T && (isClass!T || isStruct!T))
+		if (isNativeSerializationSupported!T && (isClass!T || isStruct!T) && !isDynamicType!T)
 	{
 		alias TokenType = PT.TokenType;
 		
@@ -706,8 +862,20 @@ final class JSONSerializationFormat : SerializationFormat
 	static T fromJSON(T)(string val) @safe
 	{
 		auto parser = JSONLexer!string(val);
+
+		auto v = deserializeValue!T(parser);
+		assert(parser.current.type == JSONLexer!string.TokenType.EOF);
+		return v;
+	}
+
+	static T fromJSON(T)(string val, T delegate(string name, T val) callback) @safe
+		if (isDynamicType!T)
+	{
+		auto parser = JSONLexer!string(val);
 		
-		return deserializeValue!T(parser);
+		auto v = deserializeValue!T(parser, callback);
+		assert(parser.current.type == JSONLexer!string.TokenType.EOF);
+		return v;
 	}
 }
 
@@ -724,12 +892,18 @@ string toJSON(T)(T val) @trusted
 	import std.performance.array : Appender;
 
 	auto ret = BinaryOutputRange!(Appender!(ubyte[]))();
+	ret.put(""); // This ensures everything is initialized.
 	JSONSerializationFormat.InnerFunStuff!(Appender!(ubyte[])).serialize(ret, val);
 	return cast(string)ret.data;
 }
 T fromJSON(T)(string val) @safe 
 {
 	return JSONSerializationFormat.fromJSON!T(val); 
+}
+T fromJSON(T)(string val, T delegate(string name, T val) callback)
+	if (SerializationFormat.isDynamicType!T)
+{
+	return JSONSerializationFormat.fromJSON!T(val, callback);
 }
 
 @safe unittest
