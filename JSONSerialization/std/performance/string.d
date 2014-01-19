@@ -3,7 +3,7 @@ module std.performance.string;
 // TODO: Unittest.
 bool contains(char c)(scope string str) @trusted pure nothrow
 {
-	if (__ctfe)
+	//if (__ctfe)
 	{
 		foreach (char cc; str)
 		{
@@ -13,31 +13,32 @@ bool contains(char c)(scope string str) @trusted pure nothrow
 		return false;
 	}
 
-	static size_t genSearchValue(char c)
-	{
-		size_t ret = c;
-		for (auto i = 0; i < size_t.sizeof; i++)
-		{
-			ret <<= 8;
-			ret |= c;
-		}
-		return ret;
-	}
-	enum size_t searchValue = genSearchValue(c);
-
-	size_t* val = cast(size_t*)str.ptr;
-	size_t* valEnd = &val[str.length / size_t.sizeof];
-	while (val < valEnd)
-	{
-		if (*val++ == searchValue)
-			return true;
-	}
-	for (auto i = str.length - (str.length / size_t.sizeof); i < str.length; i++)
-	{
-		if (str[i] == c)
-			return true;
-	}
-	return false;
+//	static size_t genSearchValue(char c)
+//	{
+//		size_t ret = c;
+//		for (auto i = 0; i < size_t.sizeof; i++)
+//		{
+//			ret <<= 8;
+//			ret |= c;
+//		}
+//		return ret;
+//	}
+//	enum size_t searchValue = genSearchValue(c);
+//
+//	size_t* val = cast(size_t*)str.ptr;
+//	size_t* valEnd = &val[str.length / size_t.sizeof];
+//	while (val < valEnd)
+//	{
+//		if (*val == searchValue)
+//			return true;
+//		val++;
+//	}
+//	for (auto i = str.length % size_t.sizeof; i < str.length; i++)
+//	{
+//		if (str[i] == c)
+//			return true;
+//	}
+//	return false;
 }
 
 // TODO: Check if this gets properly marked as nothrow for the runtime version.
