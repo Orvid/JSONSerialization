@@ -151,7 +151,7 @@ protected:
 		
 		@property void markSerialized(string member)() @safe pure nothrow
 		{
-			import std.typecons : staticIndexOf;
+			import std.traits : staticIndexOf;
 			
 			fieldMarkers[staticIndexOf!(member, members)] = true;
 		}
@@ -177,7 +177,7 @@ protected:
 	
 	enum deserializationContext;
 	enum isDeserializationContext(T) = hasAttribute!(T, deserializationContext);
-	
+
 	template isSerializable(T)
 	{
 		import std.traits : isBuiltinType;
@@ -195,7 +195,7 @@ protected:
 		static if (isClass!T)
 			static assert(hasPublicDefaultConstructor!T, `The class '` ~ T.stringof ~ `' doesn't have a publicly visible constructor!`);
 		else static if (isStruct!T)
-			static assert(hasPublicDefaultConstructor!T, `The struct '` ~ T.stringof ~ `' doesn't have a publicly visible constructor!`);
+			static assert(__traits(getProtection, T) == "public", `The struct '` ~ T.stringof ~ `' doesn't have a publicly visible constructor!`);
 		else
 			static assert(0, "Not yet implemented!");
 	}
@@ -260,7 +260,7 @@ protected:
 				// TODO: Figure out a way that this can be done without needing to
 				//       allocate a string for the value. Unfortunately this currently
 				//       is prevented by the need to process the actual string.
-				static if (__traits(compiles, (cast(T)T.init).toString()) && __traits(compiles, T.parse("")))
+				static if (__traits(compiles, (cast(T)T.init).toString()))
 				{
 					serialize(output, val.toString());
 				}
@@ -269,7 +269,7 @@ protected:
 					serialize(output, to!string(val));
 				}
 				else
-					static assert(0, typeof(this).stringof ~ " does not support serializing a " ~ T.stringof ~ ", and the type does not implement parse and toString!");
+					static assert(0, typeof(this).stringof ~ " does not support serializing a " ~ T.stringof ~ ", and the type does not implement toString!");
 			}
 		};
 	}
@@ -292,7 +292,7 @@ protected:
 				import std.traits : isBuiltinType;
 				import std.traitsExt : isEnum;
 				
-				static if (__traits(compiles, (cast(T)T.init).toString()) && __traits(compiles, T.parse("")))
+				static if (__traits(compiles, T.parse("")))
 				{
 					T v = T.parse(ctx.current.stringValue);
 					ctx.consume();
@@ -305,12 +305,61 @@ protected:
 					return v;
 				}
 				else
-					static assert(0, typeof(this).stringof ~ " does not support deserializing a " ~ T.stringof ~ ", and the type does not implement parse and toString!");
+					static assert(0, typeof(this).stringof ~ " does not support deserializing a " ~ T.stringof ~ ", and the type does not implement parse!");
 			}
 		};
 	}
 	
 public:
+	@property static bool isDynamicType(T)()
+	{
+		T val;
+		enum isDynamicType =
+			__traits(compiles, cast(bool)val)
+				&& __traits(compiles, val = true)
+				&& __traits(compiles, cast(string)val)
+				&& __traits(compiles, val = "")
+				&& __traits(compiles, cast(long)val)
+				&& __traits(compiles, val = 2L)
+				&& __traits(compiles, cast(real)val)
+				&& __traits(compiles, val = 2.0)
+				&& __traits(compiles, (val["test"] = 2))
+				&& __traits(compiles, val = null)
+				&& is(typeof(val.isTypeBoolean) == bool)
+				&& is(typeof(val.isTypeString) == bool)
+				&& is(typeof(val.isTypeArray) == bool)
+				&& is(typeof(val.isTypeObject) == bool)
+				&& is(typeof(val.isTypeNumeric) == bool)
+				&& is(typeof(val.isTypeIntegral) == bool)
+				;// () {
+		//			T val;
+		//static assert(is(typeof(val.isBoolean) == bool));
+		//bool b = cast(bool)val;
+		//val = true;
+		//static assert(is(typeof(val.isString) == bool));
+		//string s = cast(string)val;
+		//val = s;
+		//static assert(is(typeof(val.isArray) == bool));
+		//for (size_t i = 0; i < val.length; i++) { }
+		//val[0] = 2;
+		//static assert(is(typeof(val.isObject) == bool));
+		//foreach (k, v; val)
+		//{
+		//static assert(is(typeof(k) == string));
+		//}
+		//val["test"] = 2;
+		//			val = null;
+		//static assert(is(typeof(val.isNumeric) == bool));
+		//static assert(is(typeof(val.isIntegral) == bool));
+		//			val = 2L;
+		//long l = cast(long)val;
+		//			val = 2.0;
+		//real r = cast(real)val;
+		//static assert(is(typeof(!val) == bool));
+		//});
+		return isDynamicType;
+	}
+
 	abstract ubyte[] serialize(T)(T val);
 	abstract T deserialize(T)(ubyte[] data);
 }
