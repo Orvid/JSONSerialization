@@ -325,10 +325,10 @@ template isMemberField(T, string member)
 alias MemberType(T, string member) = typeof(getDefaultMemberValue!(T, member));
 
 // TODO: Unittest.
-@property auto getDefaultMemberValue(T, string member)()
+template getDefaultMemberValue(T, string member)
 	if (hasPublicDefaultConstructor!T)
 {
-	return __traits(getMember, constructDefault!T, member);
+	enum getDefaultMemberValue = __traits(getMember, constructDefault!T, member);
 }
 
 // TODO: Unittest.
@@ -378,8 +378,10 @@ template isOneOf(T, Possibilities...)
 
 template Dequal(T)
 {
-	import std.traits : ForeachType, isArray, isPointer, PointerTarget, Unqual;
-	static if (isArray!T)
+	import std.traits : ForeachType, isAssociativeArray, isArray, isPointer, KeyType, PointerTarget, Unqual, ValueType;
+	static if (isAssociativeArray!T)
+		alias Dequal = Dequal!(ValueType!T)[Dequal!(KeyType!T)];
+	else static if (isArray!T)
 		alias Dequal = Dequal!(ForeachType!T)[];
 	else static if (isPointer!T)
 		alias Dequal = Dequal!(PointerTarget!T)*;

@@ -3,12 +3,12 @@
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
-    <ProductVersion>10.0.0</ProductVersion>
+    <ProductVersion>8.0.30703</ProductVersion>
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>{E0DAE2D7-D0DA-4840-9005-C4D546DA5A8A}</ProjectGuid>
-    <Compiler>DMD HEAD</Compiler>
+    <Compiler>DMD2</Compiler>
     <PreferOneStepBuild>true</PreferOneStepBuild>
-    <UseDefaultCompiler>false</UseDefaultCompiler>
+    <UseDefaultCompiler>true</UseDefaultCompiler>
     <IncrementalLinking>true</IncrementalLinking>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
@@ -20,6 +20,7 @@
     <UnittestMode>false</UnittestMode>
     <ObjectsDirectory>obj\Debug</ObjectsDirectory>
     <DebugLevel>0</DebugLevel>
+    <LinkinThirdPartyLibraries>false</LinkinThirdPartyLibraries>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
     <OutputPath>bin\Release</OutputPath>
@@ -30,6 +31,7 @@
     <ObjectsDirectory>obj\Release</ObjectsDirectory>
     <DebugLevel>0</DebugLevel>
     <ExtraCompilerArguments>-g -inline</ExtraCompilerArguments>
+    <LinkinThirdPartyLibraries>false</LinkinThirdPartyLibraries>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Unittest|AnyCPU' ">
     <DebugSymbols>true</DebugSymbols>
@@ -40,6 +42,7 @@
     <UnittestMode>true</UnittestMode>
     <ObjectsDirectory>obj\Unittest</ObjectsDirectory>
     <DebugLevel>0</DebugLevel>
+    <LinkinThirdPartyLibraries>false</LinkinThirdPartyLibraries>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="main.d" />

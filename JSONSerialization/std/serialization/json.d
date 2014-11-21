@@ -1,9 +1,8 @@
 module std.serialization.json;
 
 import std.range : isOutputRange;
-import std.serialization : BinaryOutputRange, SerializationFormat;
+import std.serialization : BinaryOutputRange, ignoreUndefined, SerializationFormat;
 
-// TODO: Add support for associative arrays.
 // TODO: Add support for unions.
 // TODO: Add support for Tuple's.
 // TODO: Add support for private members.
@@ -11,7 +10,7 @@ import std.serialization : BinaryOutputRange, SerializationFormat;
 final class JSONSerializationFormat : SerializationFormat
 {
 	import std.range : isInputRange;
-	import std.traits : ForeachType, isArray;
+	import std.traits : ForeachType, isAssociativeArray, isArray, KeyType, ValueType;
 	import std.traitsExt : constructDefault, Dequal, isClass, isStruct, isOneOf;
 
 //	// TODO: Unittest these 2 methods.
@@ -30,6 +29,8 @@ final class JSONSerializationFormat : SerializationFormat
 		{
 			static if (isDynamicType!T)
 				enum isNativeSerializationSupported = true;
+			else static if (isAssociativeArray!T)
+				enum isNativeSerializationSupported = isNativeSerializationSupported!(Dequal!(KeyType!T)) && isNativeSerializationSupported!(ValueType!T);
 			else static if (isArray!T)
 				enum isNativeSerializationSupported = isNativeSerializationSupported!(ForeachType!T);
 			else static if (isSerializable!T)
@@ -89,6 +90,24 @@ final class JSONSerializationFormat : SerializationFormat
 				output.put(`"` ~ getFinalMemberName!(T, member) ~ `":`);
 				serialize(output, getMemberValue!member(val));
 				i++;
+			}
+			output.put('}');
+		}
+
+		/// ditto
+		static void serialize(T)(ref BinaryOutputRange!OR output, T val) @safe
+			if (isNativeSerializationSupported!T && isAssociativeArray!T)
+		{
+			output.put('{');
+			bool first = true;
+			foreach (ref k, ref v; val)
+			{
+				if (!first)
+					output.put(',');
+				serialize(output, k);
+				output.put(':');
+				serialize(output, v);
+				first = false;
 			}
 			output.put('}');
 		}
@@ -345,7 +364,7 @@ final class JSONSerializationFormat : SerializationFormat
 				throw new Exception("Unexpected token!"); // TODO: Make more descriptive
 		}
 		
-		void consume() @safe pure
+		export void consume() @trusted pure
 		{
 		Restart:
 			if (!input.length)
@@ -670,6 +689,65 @@ final class JSONSerializationFormat : SerializationFormat
 		if (isNativeSerializationSupported!T && (isClass!T || isStruct!T) && !isDynamicType!T)
 	{
 		alias TokenType = PT.TokenType;
+
+		static void skipValue(ref PT parser)
+		{
+			switch (parser.current.type)
+			{
+				case TokenType.LCurl:
+					parser.consume();
+					bool first = true;
+					if (parser.current.type != TokenType.RCurl) do
+					{
+						if (!first) // The fact we've got here means the current token MUST be a comma.
+							parser.consume();
+						
+						parser.expect!(TokenType.String);
+						parser.consume();
+						parser.expect!(TokenType.Colon);
+						parser.consume();
+						skipValue(parser);
+
+						first = false;
+					} while (parser.current.type == TokenType.Comma);
+					
+					parser.expect!(TokenType.RCurl);
+					parser.consume();
+					break;
+				case TokenType.LSquare:
+					parser.consume();
+					bool first = true;
+					if (parser.current.type != TokenType.RSquare) do
+					{
+						if (!first) // The fact we got here means that the current token MUST be a comma.
+							parser.consume();
+
+						skipValue(parser);
+						first = false;
+					} while (parser.current.type == TokenType.Comma);
+					parser.expect!(TokenType.RSquare);
+					parser.consume();
+					break;
+				case TokenType.Number:
+					parser.consume();
+					break;
+				case TokenType.String:
+					parser.consume();
+					break;
+				case TokenType.True:
+					parser.consume();
+					break;
+				case TokenType.False:
+					parser.consume();
+					break;
+				case TokenType.Null:
+					parser.consume();
+					break;
+					
+				default:
+					throw new Exception("Unknown token type!");
+			}
+		}
 		
 		if (parser.current.type == TokenType.Null)
 		{
@@ -707,16 +785,27 @@ final class JSONSerializationFormat : SerializationFormat
 					import std.traitsExt : MemberType, setMemberValue;
 					
 					case getFinalMemberName!(T, member):
-					parser.consume();
-					parser.expect!(TokenType.Colon);
-					parser.consume();
-					setMemberValue!member(parsedValue, deserializeValue!(MemberType!(T, member))(parser));
-					serializedFields.markSerialized!(member);
-					goto ExitSwitch;
+						parser.consume();
+						parser.expect!(TokenType.Colon);
+						parser.consume();
+						setMemberValue!member(parsedValue, deserializeValue!(MemberType!(T, member))(parser));
+						serializedFields.markSerialized!(member);
+						goto ExitSwitch;
 				}
 				
 				default:
-					throw new Exception("Unknown member '" ~ parser.current.stringValue ~ "'!");
+					static if (!hasAttribute!(T, ignoreUndefined))
+					{
+						throw new Exception("Unknown member '" ~ parser.current.stringValue ~ "'!");
+					}
+					else
+					{
+						parser.consume();
+						parser.expect!(TokenType.Colon);
+						parser.consume();
+						skipValue(parser);
+						break;
+					}
 			}
 			
 		ExitSwitch:
@@ -793,7 +882,39 @@ final class JSONSerializationFormat : SerializationFormat
 		parser.consume();
 		return ret;
 	}
-	
+
+	private static T deserializeValue(T, PT)(ref PT parser) @trusted
+		if (isNativeSerializationSupported!T && isAssociativeArray!T)
+	{
+		pragma(msg, "Well, i'm here at least...");
+		alias TokenType = PT.TokenType;
+
+		bool first = true;
+		ValueType!T[KeyType!T] val;
+
+		parser.expect!(TokenType.LCurl);
+		parser.consume();
+		if (parser.current.type != TokenType.RCurl) do
+		{
+			if (!first) // The fact we've got here means the current token MUST be a comma.
+				parser.consume();
+
+			// Key types are const, so we have to remove that to get it to be nice...
+			auto key = cast(const)deserializeValue!(Dequal!(KeyType!T))(parser);
+
+			parser.expect!(TokenType.Colon);
+			parser.consume();
+
+			val[key] = deserializeValue!(ValueType!T)(parser);
+
+			first = false;
+		} while (parser.current.type == TokenType.Comma);
+
+		parser.expect!(TokenType.RCurl);
+		parser.consume();
+		return val;
+	}
+
 	private static T deserializeValue(T, PT)(ref PT parser) @trusted
 		if (isNativeSerializationSupported!T && isArray!T && isOneOf!(ForeachType!T, char, wchar, dchar))
 	{

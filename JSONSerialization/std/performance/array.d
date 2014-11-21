@@ -3,7 +3,7 @@ module std.performance.array;
 import std.range : isOutputRange;
 import std.traitsExt : Dequal;
 
-@safe pure struct Appender(A : QE[], QE)
+@trusted pure struct Appender(A : QE[], QE)
 {
 	alias E = Dequal!QE;
 
@@ -14,13 +14,13 @@ import std.traitsExt : Dequal;
 	}
 	private InnerData mData;
 
-	private void ensureCreated() @safe pure nothrow
+	private void ensureCreated() @trusted pure nothrow
 	{
 		if (!mData)
 			mData = new InnerData();
 	}
 	
-	private void ensureSpace(size_t len) @safe pure nothrow
+	private void ensureSpace(size_t len) @trusted pure nothrow
 	{
 		ensureCreated();
 		while (mData.nextI + len >= mData.mBuffer.length)
@@ -33,7 +33,13 @@ import std.traitsExt : Dequal;
 		return cast(A)mData.mBuffer[0..mData.nextI].dup;
 	}
 
-	void clear() @safe pure nothrow
+	void reset() @trusted pure nothrow
+	{
+		ensureCreated();
+		mData.nextI = 0;
+	}
+
+	void clear() @trusted pure nothrow
 	{
 		ensureCreated();
 		mData.nextI = 0;
@@ -55,7 +61,7 @@ import std.traitsExt : Dequal;
 		mData.nextI += arr.length;
 	}
 
-	void put(QE e) @safe pure nothrow
+	void put(QE e) @trusted pure nothrow
 	{
 		ensureCreated();
 		ensureSpace(1);
@@ -65,7 +71,7 @@ import std.traitsExt : Dequal;
 
 	static if (!is(QE == E))
 	{
-		void put(E[] arr) @safe pure nothrow
+		void put(E[] arr) @trusted pure nothrow
 		{
 			ensureCreated();
 			ensureSpace(arr.length);
@@ -73,7 +79,7 @@ import std.traitsExt : Dequal;
 			mData.nextI += arr.length;
 		}
 
-		void put(E e) @safe pure nothrow
+		void put(E e) @trusted pure nothrow
 		{
 			ensureCreated();
 			ensureSpace(1);

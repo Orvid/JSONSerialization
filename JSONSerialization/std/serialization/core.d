@@ -5,6 +5,7 @@ import std.range : isInputRange, isOutputRange;
 enum optional;
 enum serializable;
 enum nonSerialized;
+enum ignoreUndefined;
 struct serializeAs { string Name; }
 
 struct BinaryInputRange(IR)
@@ -102,6 +103,7 @@ abstract class SerializationFormat
 		isClass,
 		isStruct,
 		isMemberField,
+		MemberType,
 		memberHasAttribute
 	;
 	
@@ -227,13 +229,21 @@ protected:
 	}
 	
 	enum isMemberOptional(T, string member) = memberHasAttribute!(T, member, optional);
-	
-	static bool shouldSerializeValue(T, string member)(T val) @safe pure nothrow
+
+	export static bool shouldSerializeValue(T, string member)(T val) @trusted
 	{
 		static if (isMemberOptional!(T, member))
 		{
-			if (getDefaultMemberValue!(T, member) == getMemberValue!member(val))
-				return false;
+			static if (!__traits(compiles, getDefaultMemberValue!(T, member) == getMemberValue!member(val)))
+			{
+				if (getDefaultMemberValue!(T, member) is getMemberValue!member(val))
+					return false;
+			}
+			else
+			{
+				if (getDefaultMemberValue!(T, member) == getMemberValue!member(val))
+					return false;
+			}
 		}
 		return true;
 	}
